@@ -1,0 +1,6 @@
+@AutoEmply_HostAddress = http://localhost:5003
+
+GET {{AutoEmply_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

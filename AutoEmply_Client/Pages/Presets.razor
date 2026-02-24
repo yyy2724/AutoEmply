@@ -1,0 +1,90 @@
+@page "/presets"
+@inject HttpClient Http
+
+<PageTitle>프롬프트 설정</PageTitle>
+
+<MudPaper Class="pa-6">
+    <MudStack Spacing="2">
+        <MudText Typo="Typo.h5">프롬프트 설정</MudText>
+        <MudText Typo="Typo.body2">
+            아래 시스템 프롬프트를 저장하면 DB에 누적됩니다. JSON 생성 시 최근 시스템 프롬프트 최대 20개를 함께 참고합니다.
+        </MudText>
+
+        <MudTextField @bind-Value="SystemPrompt"
+                      Label="시스템 프롬프트"
+                      Variant="Variant.Outlined"
+                      Lines="12" />
+
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@IsBusy" OnClick="SaveAsync">
+            저장
+        </MudButton>
+
+        @if (!string.IsNullOrWhiteSpace(Message))
+        {
+            <MudAlert Severity="Severity.Info">@Message</MudAlert>
+        }
+    </MudStack>
+</MudPaper>
+
+@code {
+    private bool IsBusy { get; set; }
+    private string Message { get; set; } = string.Empty;
+    private string SystemPrompt { get; set; } = string.Empty;
+
+    private async Task SaveAsync()
+    {
+        if (string.IsNullOrWhiteSpace(SystemPrompt))
+        {
+            Message = "시스템 프롬프트를 입력하세요.";
+            return;
+        }
+
+        try
+        {
+            IsBusy = true;
+            Message = string.Empty;
+
+            var request = new CreatePromptPresetRequest
+            {
+                Name = $"Prompt-{DateTime.UtcNow:yyyyMMddHHmmss}",
+                SystemPrompt = SystemPrompt.Trim(),
+                UserPromptTemplate = "formName={{formName}}. Return valid LayoutSpec JSON only.",
+                StyleRulesJson = null,
+                Model = null,
+                Temperature = 0,
+                MaxTokens = 2048,
+                IsActive = true
+            };
+
+            var response = await Http.PostAsJsonAsync("api/prompts", request);
+            var body = await response.Content.ReadAsStringAsync();
+            if (!response.IsSuccessStatusCode)
+            {
+                Message = $"저장 실패: {body}";
+                return;
+            }
+
+            Message = "저장 완료";
+        }
+        catch (Exception ex)
+        {
+            Message = $"오류: {ex.Message}";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private sealed class CreatePromptPresetRequest
+    {
+        public string Name { get; set; } = string.Empty;
+        public string SystemPrompt { get; set; } = string.Empty;
+        public string UserPromptTemplate { get; set; } = string.Empty;
+        public string? StyleRulesJson { get; set; }
+        public string? Model { get; set; }
+        public decimal? Temperature { get; set; }
+        public int? MaxTokens { get; set; }
+        public bool IsActive { get; set; }
+    }
+}
