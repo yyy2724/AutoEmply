@@ -1,4 +1,4 @@
-using System.Net.Http.Headers;
+﻿using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using AutoEmply.Models;
@@ -22,7 +22,9 @@ public sealed class ClaudeClient(
         string mediaType,
         string fileBase64,
         ResolvedPromptPreset preset,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool forceNonEmptyItems = false,
+        int emptyObjectRetryLevel = 0)
     {
         var apiKey = Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY");
         if (string.IsNullOrWhiteSpace(apiKey))
@@ -36,7 +38,18 @@ public sealed class ClaudeClient(
         logger.LogInformation("Claude request configuration. Model={Model}, Endpoint={Endpoint}, MaxRetryAttempts={MaxRetryAttempts}", model, endpoint, maxRetryAttempts);
 
         var userPrompt = $"formName={formName}. Analyze uploaded image or PDF and return valid LayoutSpec JSON.";
-        var systemPrompt = preset.SystemPrompt;
+        if (emptyObjectRetryLevel >= 2)
+        {
+            userPrompt += " Return exactly one JSON object with top-level items array. Never return {}.";
+        }
+
+        var systemPrompt = forceNonEmptyItems
+            ? $"{preset.SystemPrompt}\n\nHard requirement: items must contain at least one element. Empty array is never allowed. If uncertain, output at least one best-effort Text item."
+            : preset.SystemPrompt;
+        if (emptyObjectRetryLevel >= 2)
+        {
+            systemPrompt += "\n\nCritical requirement: never return an empty object {}. Always include items and at least one valid item.";
+        }
 
         object visualBlock = mediaType.Equals("application/pdf", StringComparison.OrdinalIgnoreCase)
             ? new
@@ -177,6 +190,23 @@ public sealed class ClaudeClient(
                 return ClaudeLayoutResult.Fail(400, "JSON \uD30C\uC2F1 \uC2E4\uD328(\uBAA8\uB378 \uC751\uB2F5\uC774 JSON\uC774 \uC544\uB2D8)");
             }
 
+            logger.LogInformation("Claude model raw output preview (max 2000 chars). RequestId={RequestId}, Preview={Preview}",
+                requestId, TruncateForLog(text, 2000));
+
+            if (IsEmptyObjectPayload(text) && emptyObjectRetryLevel < 2)
+            {
+                var nextLevel = emptyObjectRetryLevel + 1;
+                logger.LogWarning("Claude returned empty object payload. Retrying with stronger constraints. Level={NextLevel}", nextLevel);
+                return await GenerateLayoutSpecAsync(
+                    formName,
+                    mediaType,
+                    fileBase64,
+                    preset,
+                    cancellationToken,
+                    forceNonEmptyItems: true,
+                    emptyObjectRetryLevel: nextLevel);
+            }
+
             var layoutSpec = TryParseLayoutSpec(text);
             if (layoutSpec is null)
             {
@@ -187,6 +217,19 @@ public sealed class ClaudeClient(
             var validationErrors = LayoutSpecValidator.Validate(formName, layoutSpec);
             if (validationErrors.Count > 0)
             {
+                if (!forceNonEmptyItems && IsItemsEmptyValidationFailure(validationErrors))
+                {
+                    logger.LogWarning("Claude returned empty items. Retrying once with stronger prompt constraint.");
+                    return await GenerateLayoutSpecAsync(
+                        formName,
+                        mediaType,
+                        fileBase64,
+                        preset,
+                        cancellationToken,
+                        forceNonEmptyItems: true,
+                        emptyObjectRetryLevel: emptyObjectRetryLevel);
+                }
+
                 logger.LogError("Claude returned invalid layout. RequestId={RequestId}, Errors={Errors}",
                     requestId, string.Join("; ", validationErrors));
                 return ClaudeLayoutResult.Fail(400, "\uB808\uC774\uC544\uC6C3 \uAC80\uC99D \uC2E4\uD328", validationErrors);
@@ -260,6 +303,23 @@ public sealed class ClaudeClient(
 
     private static bool IsTransientStatusCode(int statusCode) =>
         statusCode is 429 or 500 or 502 or 503 or 504 or 529;
+
+    private static bool IsItemsEmptyValidationFailure(IReadOnlyCollection<string> errors) =>
+        errors.Any(x => x.Contains("layoutSpec.items must contain at least one item.", StringComparison.OrdinalIgnoreCase));
+
+    private static string TruncateForLog(string value, int maxLength)
+    {
+        if (string.IsNullOrEmpty(value) || value.Length <= maxLength)
+        {
+            return value;
+        }
+
+        return value[..maxLength];
+    }
+
+    private static bool IsEmptyObjectPayload(string text) =>
+        string.Equals(text.Trim(), "{}", StringComparison.Ordinal);
+
 
     private static bool TryReadModelText(JsonDocument? doc, out string text)
     {

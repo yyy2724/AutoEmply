@@ -56,4 +56,23 @@ public sealed class PromptsController(PromptPresetService promptPresetService) :
             return Conflict(new { error = $"Failed to update preset: {ex.InnerException?.Message ?? ex.Message}" });
         }
     }
+
+    [HttpDelete("{id:guid}")]
+    public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var deleted = await promptPresetService.DeleteAsync(id, cancellationToken);
+            if (!deleted)
+            {
+                return NotFound(new { error = "Preset not found." });
+            }
+
+            return NoContent();
+        }
+        catch (DbUpdateException ex)
+        {
+            return Conflict(new { error = $"Failed to delete preset: {ex.InnerException?.Message ?? ex.Message}" });
+        }
+    }
 }

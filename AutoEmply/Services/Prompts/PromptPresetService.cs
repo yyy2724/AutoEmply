@@ -9,7 +9,7 @@ public sealed class PromptPresetService(AppDbContext dbContext, IConfiguration c
 {
     private const string DefaultModel = "claude-sonnet-4-6";
     private const decimal DefaultTemperature = 0m;
-    private const int DefaultMaxTokens = 2048;
+    private const int DefaultMaxTokens = 8192;
     private const int PastPromptReferenceCount = 20;
 
     public async Task<IReadOnlyList<PromptPresetDto>> GetAllAsync(CancellationToken cancellationToken)
@@ -97,6 +97,21 @@ public sealed class PromptPresetService(AppDbContext dbContext, IConfiguration c
 
         await dbContext.SaveChangesAsync(cancellationToken);
         return ToDto(entity);
+    }
+
+    public async Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var entity = await dbContext.PromptPresets
+            .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+
+        if (entity is null)
+        {
+            return false;
+        }
+
+        dbContext.PromptPresets.Remove(entity);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return true;
     }
 
     public async Task<ResolvedPromptPreset?> ResolveAsync(Guid? presetId, CancellationToken cancellationToken)
