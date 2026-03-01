@@ -78,8 +78,7 @@
         await ExecuteAsync(async () =>
         {
             using var content = await BuildMultipartContentAsync();
-            var docId = Uri.EscapeDataString(FormName.Trim());
-            var response = await Http.PostAsync($"api/documents/{docId}/generate", content);
+            var response = await Http.PostAsync("api/generate-json", content);
             var body = await response.Content.ReadAsStringAsync();
 
             if (!response.IsSuccessStatusCode)

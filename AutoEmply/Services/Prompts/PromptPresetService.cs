@@ -9,8 +9,7 @@ public sealed class PromptPresetService(AppDbContext dbContext, IConfiguration c
 {
     private const string DefaultModel = "claude-sonnet-4-6";
     private const decimal DefaultTemperature = 0m;
-    private const int DefaultMaxTokens = 8192;
-    private const int PastPromptReferenceCount = 20;
+    private const int DefaultMaxTokens = 32000;
 
     public async Task<IReadOnlyList<PromptPresetDto>> GetAllAsync(CancellationToken cancellationToken)
     {
@@ -127,66 +126,86 @@ public sealed class PromptPresetService(AppDbContext dbContext, IConfiguration c
                 return null;
             }
 
+            var otherActivePresets = await dbContext.PromptPresets
+                .AsNoTracking()
+                .Where(x => x.IsActive && x.Id != specificPreset.Id)
+                .OrderByDescending(x => x.UpdatedAt)
+                .ToListAsync(cancellationToken);
+
+            var specificMergedSystemPrompt = BuildPromptWithReferences(
+                specificPreset.SystemPrompt,
+                otherActivePresets.Select(x => x.SystemPrompt),
+                "PastPromptReference");
+            var specificMergedUserPromptTemplate = BuildPromptWithReferences(
+                specificPreset.UserPromptTemplate,
+                otherActivePresets.Select(x => x.UserPromptTemplate),
+                "PastUserPromptReference");
+
             return new ResolvedPromptPreset(
                 specificPreset.Id,
                 specificPreset.Name,
-                specificPreset.SystemPrompt,
-                specificPreset.UserPromptTemplate,
+                specificMergedSystemPrompt,
+                specificMergedUserPromptTemplate,
                 specificPreset.StyleRulesJson,
                 ResolveModel(specificPreset.Model),
                 specificPreset.Temperature ?? DefaultTemperature,
                 specificPreset.MaxTokens ?? DefaultMaxTokens);
         }
 
-        var primaryPreset = await dbContext.PromptPresets
+        var activePresets = await dbContext.PromptPresets
             .AsNoTracking()
             .Where(x => x.IsActive)
             .OrderByDescending(x => x.UpdatedAt)
-            .FirstOrDefaultAsync(cancellationToken);
-        if (primaryPreset is null)
+            .ToListAsync(cancellationToken);
+        if (activePresets.Count == 0)
         {
             return null;
         }
 
-        var pastPrompts = await dbContext.PromptPresets
-            .AsNoTracking()
-            .Where(x => x.IsActive && x.Id != primaryPreset.Id)
-            .OrderByDescending(x => x.UpdatedAt)
-            .Take(PastPromptReferenceCount)
-            .Select(x => x.SystemPrompt)
-            .ToListAsync(cancellationToken);
+        var primaryPreset = activePresets[0];
+        var secondaryPresets = activePresets.Skip(1).ToList();
 
-        var mergedSystemPrompt = BuildSystemPromptWithPastPrompts(primaryPreset.SystemPrompt, pastPrompts);
+        var mergedSystemPrompt = BuildPromptWithReferences(
+            primaryPreset.SystemPrompt,
+            secondaryPresets.Select(x => x.SystemPrompt),
+            "PastPromptReference");
+        var mergedUserPromptTemplate = BuildPromptWithReferences(
+            primaryPreset.UserPromptTemplate,
+            secondaryPresets.Select(x => x.UserPromptTemplate),
+            "PastUserPromptReference");
 
         return new ResolvedPromptPreset(
             primaryPreset.Id,
             primaryPreset.Name,
             mergedSystemPrompt,
-            primaryPreset.UserPromptTemplate,
+            mergedUserPromptTemplate,
             primaryPreset.StyleRulesJson,
             ResolveModel(primaryPreset.Model),
             primaryPreset.Temperature ?? DefaultTemperature,
             primaryPreset.MaxTokens ?? DefaultMaxTokens);
     }
 
-    private static string BuildSystemPromptWithPastPrompts(string currentPrompt, IReadOnlyList<string> pastPrompts)
+    private static string BuildPromptWithReferences(
+        string primaryPrompt,
+        IEnumerable<string> secondaryPrompts,
+        string sectionTitle)
     {
-        if (pastPrompts.Count == 0)
+        var primary = (primaryPrompt ?? string.Empty).Trim();
+        var secondary = secondaryPrompts
+            .Select(x => (x ?? string.Empty).Trim())
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        if (secondary.Count == 0)
         {
-            return currentPrompt;
+            return primary;
         }
 
-        var lines = new List<string>
+        var lines = new List<string> { primary, string.Empty, $"{sectionTitle}:" };
+        for (var i = 0; i < secondary.Count; i++)
         {
-            currentPrompt.Trim(),
-            "",
-            "PastPromptReference:",
-            "Use these as secondary context only if they do not conflict with the current prompt."
-        };
-
-        for (var i = 0; i < pastPrompts.Count; i++)
-        {
-            lines.Add($"[{i + 1}] {pastPrompts[i].Trim()}");
+            lines.Add($"[{i + 1}] {secondary[i]}");
         }
 
         return string.Join("\n", lines);

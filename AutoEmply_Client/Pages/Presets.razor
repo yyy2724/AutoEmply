@@ -141,7 +141,7 @@
             StyleRulesJson = preset.StyleRulesJson,
             Model = preset.Model,
             Temperature = preset.Temperature,
-            MaxTokens = preset.MaxTokens ?? 8192,
+            MaxTokens = preset.MaxTokens ?? 32000,
             IsActive = preset.IsActive
         };
         Message = string.Empty;
@@ -319,18 +319,16 @@
         public string? StyleRulesJson { get; set; }
         public string? Model { get; set; }
         public decimal? Temperature { get; set; } = 0;
-        public int? MaxTokens { get; set; } = 8192;
+        public int? MaxTokens { get; set; } = 32000;
         public bool IsActive { get; set; } = true;
 
         public static PresetForm CreateDefault() =>
             new()
             {
                 Name = $"Prompt-{DateTime.UtcNow:yyyyMMddHHmmss}",
-                SystemPrompt =
-                    "You generate Delphi QuickReport LayoutSpec JSON. Return only one valid JSON object with top-level {\"items\":[...]}. " +
-                    "No markdown, no explanation, no extra keys. items must contain at least one item. Empty array is never allowed.",
-                UserPromptTemplate = "formName={{formName}}. Return valid LayoutSpec JSON only.",
-                MaxTokens = 8192,
+                SystemPrompt = string.Empty,
+                UserPromptTemplate = string.Empty,
+                MaxTokens = 32000,
                 Temperature = 0,
                 IsActive = true
             };

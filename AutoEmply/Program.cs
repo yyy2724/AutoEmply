@@ -11,8 +11,14 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddSingleton<DelphiGenerator>();
+builder.Services.AddSingleton<StructureToLayoutConverter>();
+builder.Services.AddSingleton<LayoutPostProcessor>();
 builder.Services.AddSingleton<AiModelState>();
-builder.Services.AddHttpClient<ClaudeClient>();
+builder.Services.AddHttpClient<ClaudeClient>(client =>
+{
+    var timeoutSeconds = builder.Configuration.GetValue<int?>("Anthropic:RequestTimeoutSeconds") ?? 240;
+    client.Timeout = TimeSpan.FromSeconds(Math.Max(30, timeoutSeconds));
+});
 builder.Services.AddScoped<PromptPresetService>();
 builder.Services.AddScoped<PromptPresetSeeder>();
 

@@ -9,7 +9,10 @@ namespace AutoEmply.Controllers;
 public sealed class ImageExportController(
     ClaudeClient claudeClient,
     DelphiGenerator delphiGenerator,
-    PromptPresetService promptPresetService) : ControllerBase
+    StructureToLayoutConverter structureToLayoutConverter,
+    LayoutPostProcessor layoutPostProcessor,
+    PromptPresetService promptPresetService,
+    IConfiguration configuration) : ControllerBase
 {
     private const long MaxImageBytes = 5 * 1024 * 1024;
 
@@ -19,8 +22,11 @@ public sealed class ImageExportController(
         [FromForm] string formName,
         [FromForm] IFormFile image,
         [FromForm] Guid? presetId,
+        [FromForm] bool useV2,
         CancellationToken cancellationToken)
     {
+        _ = useV2;
+
         var preset = await promptPresetService.ResolveAsync(presetId, cancellationToken);
         if (preset is null)
         {
@@ -33,12 +39,11 @@ public sealed class ImageExportController(
             return BadRequest(new { error = imageCheck.Error });
         }
 
-        var result = await claudeClient.GenerateLayoutSpecAsync(
+        var result = await GenerateLayoutSpecWithServerTimeoutAsync(
             formName.Trim(),
             imageCheck.MediaType!,
             imageCheck.Base64Data!,
-            preset,
-            cancellationToken);
+            preset);
 
         if (!result.Success)
         {
@@ -49,7 +54,8 @@ public sealed class ImageExportController(
             });
         }
 
-        return Ok(result.LayoutSpec);
+        var layoutSpec = layoutPostProcessor.Process(result.LayoutSpec!);
+        return Ok(layoutSpec);
     }
 
     [HttpPost("export-from-image")]
@@ -58,8 +64,12 @@ public sealed class ImageExportController(
         [FromForm] string formName,
         [FromForm] IFormFile image,
         [FromForm] Guid? presetId,
+        [FromForm] bool useV2,
         CancellationToken cancellationToken)
     {
+        var trimmedName = formName.Trim();
+        _ = useV2;
+
         var preset = await promptPresetService.ResolveAsync(presetId, cancellationToken);
         if (preset is null)
         {
@@ -72,13 +82,11 @@ public sealed class ImageExportController(
             return BadRequest(new { error = imageCheck.Error });
         }
 
-        var trimmedName = formName.Trim();
-        var result = await claudeClient.GenerateLayoutSpecAsync(
+        var result = await GenerateLayoutSpecWithServerTimeoutAsync(
             trimmedName,
             imageCheck.MediaType!,
             imageCheck.Base64Data!,
-            preset,
-            cancellationToken);
+            preset);
 
         if (!result.Success)
         {
@@ -89,7 +97,9 @@ public sealed class ImageExportController(
             });
         }
 
-        var bytes = delphiGenerator.GenerateZip(trimmedName, result.LayoutSpec!);
+        var layoutSpec = layoutPostProcessor.Process(result.LayoutSpec!);
+
+        var bytes = delphiGenerator.GenerateZip(trimmedName, layoutSpec);
         return File(bytes, "application/zip", $"{trimmedName}.zip");
     }
 
@@ -100,9 +110,11 @@ public sealed class ImageExportController(
         [FromForm] string formName,
         [FromForm] IFormFile image,
         [FromForm] Guid? presetId,
+        [FromForm] bool useV2,
         CancellationToken cancellationToken)
     {
         _ = docId;
+        _ = useV2;
 
         var preset = await promptPresetService.ResolveAsync(presetId, cancellationToken);
         if (preset is null)
@@ -116,12 +128,11 @@ public sealed class ImageExportController(
             return BadRequest(new { error = imageCheck.Error });
         }
 
-        var result = await claudeClient.GenerateLayoutSpecAsync(
+        var result = await GenerateLayoutSpecWithServerTimeoutAsync(
             formName.Trim(),
             imageCheck.MediaType!,
             imageCheck.Base64Data!,
-            preset,
-            cancellationToken);
+            preset);
 
         if (!result.Success)
         {
@@ -132,8 +143,105 @@ public sealed class ImageExportController(
             });
         }
 
-        return Ok(result.LayoutSpec);
+        var layoutSpec = layoutPostProcessor.Process(result.LayoutSpec!);
+        return Ok(layoutSpec);
     }
+
+    // ===== V2 Endpoints: Two-Phase Generation =====
+
+    [HttpPost("generate-json-v2")]
+    [Consumes("multipart/form-data")]
+    public async Task<IActionResult> GenerateJsonV2(
+        [FromForm] string formName,
+        [FromForm] IFormFile image,
+        [FromForm] Guid? presetId,
+        CancellationToken cancellationToken)
+    {
+        return await GenerateJson(formName, image, presetId, useV2: false, cancellationToken);
+    }
+
+    [HttpPost("export-from-image-v2")]
+    [Consumes("multipart/form-data")]
+    public async Task<IActionResult> ExportFromImageV2(
+        [FromForm] string formName,
+        [FromForm] IFormFile image,
+        [FromForm] Guid? presetId,
+        CancellationToken cancellationToken)
+    {
+        return await ExportFromImage(formName, image, presetId, useV2: false, cancellationToken);
+    }
+
+    [HttpPost("generate-structure")]
+    [Consumes("multipart/form-data")]
+    public async Task<IActionResult> GenerateStructure(
+        [FromForm] string formName,
+        [FromForm] IFormFile image,
+        [FromForm] Guid? presetId,
+        CancellationToken cancellationToken)
+    {
+        var preset = await promptPresetService.ResolveAsync(presetId, cancellationToken);
+        if (preset is null)
+            return NotFound(new { error = "Prompt preset not found." });
+
+        var imageCheck = await ValidateAndReadImageAsync(image, cancellationToken);
+        if (!imageCheck.Success)
+            return BadRequest(new { error = imageCheck.Error });
+
+        var result = await GenerateFormStructureWithServerTimeoutAsync(
+            formName.Trim(), imageCheck.MediaType!, imageCheck.Base64Data!, preset);
+
+        if (!result.Success)
+            return StatusCode(result.StatusCode, new { error = result.Error, details = result.Details });
+
+        return Ok(result.FormStructure);
+    }
+
+    private async Task<(IActionResult? error, Models.LayoutSpec? layoutSpec)> RunTwoPhasePipelineAsync(
+        string formName, IFormFile image, Guid? presetId, CancellationToken cancellationToken)
+    {
+        var preset = await promptPresetService.ResolveAsync(presetId, cancellationToken);
+        if (preset is null)
+            return (NotFound(new { error = "Prompt preset not found." }), null);
+
+        var imageCheck = await ValidateAndReadImageAsync(image, cancellationToken);
+        if (!imageCheck.Success)
+            return (BadRequest(new { error = imageCheck.Error }), null);
+
+        var trimmedName = formName.Trim();
+
+        // Phase 1: Extract structure
+        var structureResult = await GenerateFormStructureWithServerTimeoutAsync(
+            trimmedName, imageCheck.MediaType!, imageCheck.Base64Data!, preset);
+
+        if (!structureResult.Success)
+        {
+            return (StatusCode(structureResult.StatusCode, new
+            {
+                error = structureResult.Error,
+                details = structureResult.Details
+            }), null);
+        }
+
+        // Phase 2: Convert structure to layout
+        var layoutSpec = structureToLayoutConverter.Convert(structureResult.FormStructure!);
+
+        // Phase 3: Post-process
+        layoutSpec = layoutPostProcessor.Process(layoutSpec);
+
+        return (null, layoutSpec);
+    }
+
+    private async Task<ClaudeFormStructureResult> GenerateFormStructureWithServerTimeoutAsync(
+        string formName, string mediaType, string fileBase64, ResolvedPromptPreset preset)
+    {
+        var timeoutSeconds = configuration.GetValue<int?>("Anthropic:RequestTimeoutSeconds") ?? 240;
+        using var aiCts = new CancellationTokenSource(TimeSpan.FromSeconds(Math.Max(30, timeoutSeconds)));
+
+        return await claudeClient.GenerateFormStructureAsync(
+            formName, mediaType, fileBase64, preset, aiCts.Token);
+    }
+
+    // ===== Shared Helpers =====
 
     private static async Task<ImageValidationResult> ValidateAndReadImageAsync(IFormFile? image, CancellationToken cancellationToken)
     {
@@ -158,6 +266,23 @@ public sealed class ImageExportController(
         await stream.CopyToAsync(memory, cancellationToken);
         var base64 = Convert.ToBase64String(memory.ToArray());
         return ImageValidationResult.Ok(mediaType, base64);
+    }
+
+    private async Task<ClaudeLayoutResult> GenerateLayoutSpecWithServerTimeoutAsync(
+        string formName,
+        string mediaType,
+        string fileBase64,
+        ResolvedPromptPreset preset)
+    {
+        var timeoutSeconds = configuration.GetValue<int?>("Anthropic:RequestTimeoutSeconds") ?? 240;
+        using var aiCts = new CancellationTokenSource(TimeSpan.FromSeconds(Math.Max(30, timeoutSeconds)));
+
+        return await claudeClient.GenerateLayoutSpecAsync(
+            formName,
+            mediaType,
+            fileBase64,
+            preset,
+            aiCts.Token);
     }
 
     private static string? ResolveMediaType(string fileName, string? contentType)
@@ -205,6 +330,7 @@ public sealed class ImageExportController(
             _ => null
         };
     }
+
 }
 
 public sealed record ImageValidationResult(bool Success, string? Error, string? MediaType, string? Base64Data)
