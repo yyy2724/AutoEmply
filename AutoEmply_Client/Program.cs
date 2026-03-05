@@ -1,6 +1,7 @@
 using AutoEmply_Client;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
+using Toolbelt.Blazor.Extensions.DependencyInjection;
 using MudBlazor.Services;
 
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
@@ -15,5 +16,6 @@ builder.Services.AddScoped(_ => new HttpClient
     Timeout = TimeSpan.FromSeconds(Math.Max(30, clientTimeoutSeconds))
 });
 builder.Services.AddMudServices();
+builder.Services.AddHotKeys2();
 
 await builder.Build().RunAsync();

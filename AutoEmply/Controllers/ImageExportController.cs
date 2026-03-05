@@ -6,28 +6,28 @@ namespace AutoEmply.Controllers;
 
 [ApiController]
 [Route("api")]
-public sealed class ImageExportController(
-    ClaudeClient claudeClient,
-    DelphiGenerator delphiGenerator,
-    StructureToLayoutConverter structureToLayoutConverter,
-    LayoutPostProcessor layoutPostProcessor,
-    PromptPresetService promptPresetService,
-    IConfiguration configuration) : ControllerBase
+public sealed class ImageExportController( // sealed => 상속 불가, record => 불변 객체
+    ClaudeClient claudeClient,  // Claude api 호출
+    DelphiGenerator delphiGenerator, // zip파일 생성
+    StructureToLayoutConverter structureToLayoutConverter, // 구조 -> 레이아웃 변환
+    LayoutPostProcessor layoutPostProcessor,  // 레이아웃 후처리 보정
+    PromptPresetService promptPresetService,  // 프롬프트 템플릿 조회
+    IConfiguration configuration) : ControllerBase // 설정 파일들 
 {
-    private const long MaxImageBytes = 5 * 1024 * 1024;
+    private const long MaxImageBytes = 5 * 1024 * 1024; // 최대 5MB
 
     [HttpPost("generate-json")]
-    [Consumes("multipart/form-data")]
+    [Consumes("multipart/form-data")] // multipart/form-data로 이미지 업로드 받음 파일 + 텍스트 같이 받는 경우 multipart/form-data로 받아야 함
     public async Task<IActionResult> GenerateJson(
-        [FromForm] string formName,
-        [FromForm] IFormFile image,
-        [FromForm] Guid? presetId,
-        [FromForm] bool useV2,
-        CancellationToken cancellationToken)
+        [FromForm] string formName, //폼이름
+        [FromForm] IFormFile image, // 업로드된 이미지 파일
+        [FromForm] Guid? presetId, // 프롬프트 템플릿 아이디
+        [FromForm] bool useV2,     // V2 사용 여부 (현재는 무시, 향후 두-단계 파이프라인에서 사용 예정)
+        CancellationToken cancellationToken) // 취소 토큰 (클라이언트가 요청 취소할 때 사용)
     {
-        _ = useV2;
+        _ = useV2;  // v2 프로젝트 유기
 
-        var preset = await promptPresetService.ResolveAsync(presetId, cancellationToken);
+        var preset = await promptPresetService.ResolveAsync(presetId, cancellationToken); // 프롬프트 템플릿 조회
         if (preset is null)
         {
             return NotFound(new { error = "Prompt preset not found." });
@@ -40,10 +40,10 @@ public sealed class ImageExportController(
         }
 
         var result = await GenerateLayoutSpecWithServerTimeoutAsync(
-            formName.Trim(),
-            imageCheck.MediaType!,
-            imageCheck.Base64Data!,
-            preset);
+            formName.Trim(), // 폼 이름 양쪽 공백 제거
+            imageCheck.MediaType!, // 이미지 미디어 타입 (예: image/png)
+            imageCheck.Base64Data!, // 이미지 데이터를 Base64로 인코딩한 문자열
+            preset);                // 프롬프트 템플릿 정보
 
         if (!result.Success)
         {

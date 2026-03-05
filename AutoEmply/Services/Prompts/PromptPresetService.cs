@@ -117,9 +117,9 @@ public sealed class PromptPresetService(AppDbContext dbContext, IConfiguration c
     {
         if (presetId.HasValue)
         {
-            var specificPreset = await dbContext.PromptPresets
-                .AsNoTracking()
-                .FirstOrDefaultAsync(x => x.Id == presetId.Value, cancellationToken);
+            var specificPreset = await dbContext.PromptPresets // DB Prompt_Preset 접근
+                .AsNoTracking() //읽기 전용
+                .FirstOrDefaultAsync(x => x.Id == presetId.Value, cancellationToken); //특정 프리셋 1개 조회
 
             if (specificPreset is null)
             {

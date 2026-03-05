@@ -1,15 +1,20 @@
 @inherits LayoutComponentBase
+@implements IDisposable
+@inject Toolbelt.Blazor.HotKeys2.HotKeys HotKeys
 
-<MudThemeProvider />
-<MudDialogProvider />
-<MudSnackbarProvider />
+<MudThemeProvider/>
+<MudDialogProvider/>
+<MudSnackbarProvider/>
 
 <MudLayout>
     <MudAppBar Elevation="1">
         <MudText Typo="Typo.h6">AutoEmply</MudText>
-        <MudSpacer />
+        <MudSpacer/>
         <MudButton Variant="Variant.Text" Color="Color.Inherit" Href="/create">생성</MudButton>
-        <MudButton Variant="Variant.Text" Color="Color.Inherit" Href="/presets">프롬프트 저장</MudButton>
+        @if (_showPrestButton)
+        {
+            <MudButton Variant="Variant.Text" Color="Color.Inherit" Href="/presets">프롬프트 저장</MudButton>
+        }
         <MudButton Variant="Variant.Text" Color="Color.Inherit" Href="/home">홈</MudButton>
     </MudAppBar>
 
@@ -19,3 +24,32 @@
         </MudContainer>
     </MudMainContent>
 </MudLayout>
+
+@code{
+    private Toolbelt.Blazor.HotKeys2.HotKeysContext? _hotKeys;
+    private bool _showPrestButton = false; // 처음에는 숨깁니다.
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+        _hotKeys = HotKeys.CreateContext()
+            .Add(Toolbelt.Blazor.HotKeys2.ModCode.None, 
+                Toolbelt.Blazor.HotKeys2.Code.F1, 
+                TogglePrestsButton, 
+                "Toggle Presets Button");
+    }
+
+    private void TogglePrestsButton()
+    {
+        _showPrestButton = !_showPrestButton; // P 키를 누를 때마다 버튼의 표시 상태를 토글합니다.
+        StateHasChanged(); // UI 업데이트
+    }
+
+    public void Dispose()
+    {
+        _hotKeys?.Dispose();
+    }
+
+
+}

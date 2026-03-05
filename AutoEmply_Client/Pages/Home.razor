@@ -1,4 +1,6 @@
 @page "/home"
+@implements IDisposable
+@inject Toolbelt.Blazor.HotKeys2.HotKeys HotKeys
 
 <PageTitle>홈</PageTitle>
 
@@ -10,6 +12,39 @@
 
     <MudStack Row="true" Spacing="2">
         <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="/create">생성 화면</MudButton>
-        <MudButton Variant="Variant.Outlined" Color="Color.Primary" Href="/presets">프롬프트 저장 화면</MudButton>
+        @if (_showPrestButton)
+        {
+            <MudButton Variant="Variant.Outlined" Color="Color.Primary" Href="/presets">프롬프트 저장 화면</MudButton>
+        }
     </MudStack>
 </MudPaper>
+
+@code {
+    private Toolbelt.Blazor.HotKeys2.HotKeysContext? _hotKeys;
+    private bool _showPrestButton = false; // 처음에는 숨깁니다.
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+        _hotKeys = HotKeys.CreateContext()
+            .Add(
+                Toolbelt.Blazor.HotKeys2.ModCode.None, // Ctrl, Alt, Shift 등의 조합 없이 단일 키로 설정
+                Toolbelt.Blazor.HotKeys2.Code.F1, // F1 키를 단축키로 설정
+                TogglePrestsButton, // 단축키가 눌렸을 때 실행할 메서드
+                "Toggle Presets Button");
+    }
+
+    private void TogglePrestsButton()
+    {
+        _showPrestButton = !_showPrestButton; // F1 키를 누를 때마다 버튼의 표시 상태를 토글합니다.
+        StateHasChanged(); // UI 업데이트
+    }
+
+    public void Dispose()
+    {
+        _hotKeys?.Dispose();
+    }
+
+
+}
