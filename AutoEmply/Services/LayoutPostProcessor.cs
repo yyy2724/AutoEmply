@@ -2,8 +2,23 @@ using AutoEmply.Models;
 
 namespace AutoEmply.Services;
 
+/// <summary>
+/// Claude가 생성한 LayoutSpec을 후처리하여 품질을 높이는 다단계 파이프라인.
+///
+/// 처리 순서 (각 단계는 독립적으로 켜고 끌 수 있다):
+///   1. SnapToGrid       - 빈도 기반 격자에 좌표 스냅
+///   2. AlignEdges       - 인접 요소의 Top/Left/Right/Bottom 정렬 통일
+///   3. NormalizeRows    - 라벨 높이 13px, 수평선 높이 1px 등 표준화
+///   4. CompleteBorders  - 테이블 영역의 누락된 세로 테두리 보완
+///   5. NormalizeLineGrid- 선 좌표를 격자에 맞춤
+///   6. Consistency      - 투명도, 기본 색상 등 일관성 규칙 적용
+///   7. CanvasBounds     - 캔버스 경계 안으로 클램핑
+///   8. RemoveDuplicates - 동일 위치의 중복 선 제거
+///   9. ZOrder           - Rect → Line → Image → Text 순으로 정렬
+/// </summary>
 public sealed class LayoutPostProcessor
 {
+    // ── 캔버스/임계값 상수 ──
     private const int ContentWidth = 774;
     private const int CanvasLeft = 10;
     private const int CanvasRight = 784;
@@ -17,42 +32,25 @@ public sealed class LayoutPostProcessor
     public LayoutSpec Process(LayoutSpec input, PostProcessingOptions? options = null)
     {
         var opts = options ?? PostProcessingOptions.Default;
-        var items = input.Items.Select(CloneItem).ToList();
+        var items = input.Items.Select(i => i.Clone()).ToList();
 
-        if (opts.SnapToGrid)
-            items = SnapToGridPass(items);
-
-        if (opts.AlignEdges)
-            items = AlignEdgesPass(items);
-
-        if (opts.NormalizeRowHeights)
-            items = NormalizeRowHeightsPass(items);
-
-        if (opts.CompleteBorders)
-            items = CompleteBordersPass(items);
-
-        if (opts.NormalizeLineGrid)
-            items = NormalizeLineGridPass(items);
-
-        if (opts.EnforceConsistency)
-            items = EnforceConsistencyPass(items);
-
-        if (opts.EnforceCanvasBounds)
-            items = EnforceCanvasBoundsPass(items);
-
-        if (opts.RemoveDuplicateBorders)
-            items = RemoveDuplicateBordersPass(items);
-
-        if (opts.SortByZOrder)
-            items = SortByZOrder(items);
+        if (opts.SnapToGrid)          items = SnapToGridPass(items);
+        if (opts.AlignEdges)          items = AlignEdgesPass(items);
+        if (opts.NormalizeRowHeights) items = NormalizeRowHeightsPass(items);
+        if (opts.CompleteBorders)     items = CompleteBordersPass(items);
+        if (opts.NormalizeLineGrid)   items = NormalizeLineGridPass(items);
+        if (opts.EnforceConsistency)  items = EnforceConsistencyPass(items);
+        if (opts.EnforceCanvasBounds) items = EnforceCanvasBoundsPass(items);
+        if (opts.RemoveDuplicateBorders) items = RemoveDuplicateBordersPass(items);
+        if (opts.SortByZOrder)        items = SortByZOrder(items);
 
         return new LayoutSpec { Items = items, Pas = input.Pas };
     }
 
-    /// <summary>
-    /// Stage 1: Snap coordinates to a frequency-based grid.
-    /// Finds commonly used X/Y positions and snaps nearby elements to them.
-    /// </summary>
+    // ═══════════════════════════════════════════
+    //  Stage 1: 격자 스냅
+    // ═══════════════════════════════════════════
+
     private List<LayoutItem> SnapToGridPass(List<LayoutItem> items)
     {
         var xFreq = new Dictionary<int, int>();
@@ -66,7 +64,7 @@ public sealed class LayoutPostProcessor
             Increment(yFreq, item.Top + item.Height);
         }
 
-        // Grid = positions used by 2+ elements
+        // 2회 이상 사용된 좌표 = 격자선
         var xGrid = xFreq.Where(kv => kv.Value >= 2).Select(kv => kv.Key).OrderBy(x => x).ToList();
         var yGrid = yFreq.Where(kv => kv.Value >= 2).Select(kv => kv.Key).OrderBy(y => y).ToList();
 
@@ -74,92 +72,112 @@ public sealed class LayoutPostProcessor
         {
             var origLeft = item.Left;
             item.Left = SnapToNearest(item.Left, xGrid, SnapThreshold);
-            var right = origLeft + item.Width;
-            var snappedRight = SnapToNearest(right, xGrid, SnapThreshold);
-            item.Width = Math.Max(1, snappedRight - item.Left);
+            item.Width = Math.Max(1, SnapToNearest(origLeft + item.Width, xGrid, SnapThreshold) - item.Left);
 
             var origTop = item.Top;
             item.Top = SnapToNearest(item.Top, yGrid, SnapThreshold);
-            var bottom = origTop + item.Height;
-            var snappedBottom = SnapToNearest(bottom, yGrid, SnapThreshold);
-            item.Height = Math.Max(1, snappedBottom - item.Top);
+            item.Height = Math.Max(1, SnapToNearest(origTop + item.Height, yGrid, SnapThreshold) - item.Top);
         }
 
         return items;
     }
 
-    /// <summary>
-    /// Stage 2: Align edges. Elements at similar Y (or X) positions
-    /// within threshold are unified to the most common coordinate.
-    /// </summary>
-    private List<LayoutItem> AlignEdgesPass(List<LayoutItem> items)
+    // ═══════════════════════════════════════════
+    //  Stage 2: 엣지 정렬
+    // ═══════════════════════════════════════════
+
+    private static List<LayoutItem> AlignEdgesPass(List<LayoutItem> items)
     {
-        // Align Y positions (row alignment)
         AlignCoordinate(items, i => i.Top, (i, v) => i.Top = v, AlignThreshold);
-
-        // Align X positions (column alignment)
         AlignCoordinate(items, i => i.Left, (i, v) => i.Left = v, AlignThreshold);
-
-        // Align right edges
-        AlignCoordinate(items, i => i.Left + i.Width,
-            (i, v) => i.Width = Math.Max(1, v - i.Left), AlignThreshold);
-
-        // Align bottom edges
-        AlignCoordinate(items, i => i.Top + i.Height,
-            (i, v) => i.Height = Math.Max(1, v - i.Top), AlignThreshold);
-
+        AlignCoordinate(items, i => i.Left + i.Width, (i, v) => i.Width = Math.Max(1, v - i.Left), AlignThreshold);
+        AlignCoordinate(items, i => i.Top + i.Height, (i, v) => i.Height = Math.Max(1, v - i.Top), AlignThreshold);
         return items;
     }
 
-    /// <summary>
-    /// Stage 3: Normalize standard sizes.
-    /// Labels height 11-15 → 13, HLines height → 1, VLines width → 1.
-    /// </summary>
+    // ═══════════════════════════════════════════
+    //  Stage 3: 높이/너비 표준화
+    // ═══════════════════════════════════════════
+
     private static List<LayoutItem> NormalizeRowHeightsPass(List<LayoutItem> items)
     {
         foreach (var item in items)
         {
-            if (IsText(item) && item.Height >= 11 && item.Height <= 15)
+            if (IsText(item) && item.Height is >= 11 and <= 15)
                 item.Height = StandardLabelHeight;
+            if (IsHLine(item)) item.Height = 1;
+            if (IsVLine(item)) item.Width = 1;
+        }
+        return items;
+    }
 
-            if (IsHLine(item))
-                item.Height = 1;
+    // ═══════════════════════════════════════════
+    //  Stage 4: 누락 테두리 보완
+    // ═══════════════════════════════════════════
 
-            if (IsVLine(item))
-                item.Width = 1;
+    private static List<LayoutItem> CompleteBordersPass(List<LayoutItem> items)
+    {
+        // 테이블 가로선 = 전체 너비의 40% 이상인 수평선
+        var wideHLines = items
+            .Where(i => IsHLine(i) && i.Width > ContentWidth * 0.4)
+            .OrderBy(i => i.Top).ToList();
+        if (wideHLines.Count < 2) return items;
+
+        // Y 간격이 24px 초과이면 별도 테이블 영역으로 분리
+        var regions = DetectTableRegions(wideHLines);
+
+        foreach (var (top, bottom, left, right) in regions)
+        {
+            var height = bottom - top;
+            if (height <= 0) continue;
+
+            // 영역 내 세로선 찾기 및 확장
+            var vLines = items.Where(i =>
+                IsVLine(i) &&
+                i.Top >= top - 4 && i.Top <= bottom + 4 &&
+                i.Left >= left - 4 && i.Left <= right + 4).ToList();
+
+            foreach (var vl in vLines)
+            {
+                var nearTop = Math.Abs(vl.Top - top) <= 6;
+                var nearBottom = Math.Abs(vl.Top + vl.Height - bottom) <= 6;
+                if ((nearTop || nearBottom) && vl.Height >= (int)(height * 0.6) && vl.Height < height - 4)
+                {
+                    vl.Top = top;
+                    vl.Height = height;
+                }
+            }
+
+            var existingXs = vLines.Select(i => i.Left).ToHashSet();
+
+            // 좌측 테두리 보완
+            if (!existingXs.Any(x => Math.Abs(x - left) <= 3))
+                items.Add(MakeBorderVLine(left, top, height));
+
+            // 우측 테두리 보완
+            if (!existingXs.Any(x => Math.Abs(x - right) <= 3))
+                items.Add(MakeBorderVLine(right, top, height));
         }
 
         return items;
     }
 
-    /// <summary>
-    /// Stage 4: Detect table regions and add missing border segments.
-    /// Groups H-lines into separate table regions, ensures each has complete borders,
-    /// and extends short V-lines to span their table region.
-    /// </summary>
-    private static List<LayoutItem> CompleteBordersPass(List<LayoutItem> items)
+    private static List<(int Top, int Bottom, int Left, int Right)> DetectTableRegions(List<LayoutItem> sortedHLines)
     {
-        // Find horizontal lines spanning >40% of content width (tables)
-        var wideHLines = items.Where(i => IsHLine(i) && i.Width > ContentWidth * 0.4)
-            .OrderBy(i => i.Top).ToList();
-        if (wideHLines.Count < 2) return items;
+        var regions = new List<(int, int, int, int)>();
+        var start = sortedHLines[0];
+        var regionBottom = start.Top;
+        var regionLeft = start.Left;
+        var regionRight = start.Left + start.Width;
 
-        // Group H-lines into table regions by Y-proximity (gap > 24px = new table)
-        var tableRegions = new List<(int Top, int Bottom, int Left, int Right)>();
-        var regionStart = wideHLines[0];
-        var regionBottom = regionStart.Top;
-        var regionLeft = regionStart.Left;
-        var regionRight = regionStart.Left + regionStart.Width;
-
-        for (var i = 1; i < wideHLines.Count; i++)
+        for (var i = 1; i < sortedHLines.Count; i++)
         {
-            var line = wideHLines[i];
+            var line = sortedHLines[i];
             if (line.Top - regionBottom > 24)
             {
-                // New table region
-                if (regionBottom > regionStart.Top)
-                    tableRegions.Add((regionStart.Top, regionBottom, regionLeft, regionRight));
-                regionStart = line;
+                if (regionBottom > start.Top)
+                    regions.Add((start.Top, regionBottom, regionLeft, regionRight));
+                start = line;
                 regionBottom = line.Top;
                 regionLeft = line.Left;
                 regionRight = line.Left + line.Width;
@@ -172,125 +190,31 @@ public sealed class LayoutPostProcessor
             }
         }
 
-        if (regionBottom > regionStart.Top)
-            tableRegions.Add((regionStart.Top, regionBottom, regionLeft, regionRight));
+        if (regionBottom > start.Top)
+            regions.Add((start.Top, regionBottom, regionLeft, regionRight));
 
-        // For each table region, ensure left/right borders and extend short V-lines
-        foreach (var (top, bottom, left, right) in tableRegions)
-        {
-            var height = bottom - top;
-            if (height <= 0) continue;
-
-            var vLines = items.Where(i => IsVLine(i) &&
-                i.Top >= top - 4 && i.Top <= bottom + 4 &&
-                i.Left >= left - 4 && i.Left <= right + 4).ToList();
-
-            // Extend short V-lines only when they are already close to full span.
-            // This avoids creating giant vertical strokes across unrelated sections.
-            foreach (var vl in vLines)
-            {
-                var lineBottom = vl.Top + vl.Height;
-                var nearTop = Math.Abs(vl.Top - top) <= 6;
-                var nearBottom = Math.Abs(lineBottom - bottom) <= 6;
-                var likelySameRegion = nearTop || nearBottom;
-                if (likelySameRegion && vl.Height >= (int)(height * 0.6) && vl.Height < height - 4)
-                {
-                    vl.Top = top;
-                    vl.Height = height;
-                }
-            }
-
-            var existingXs = vLines.Select(i => i.Left).ToHashSet();
-
-            // Ensure left border
-            if (!existingXs.Any(x => Math.Abs(x - left) <= 3))
-            {
-                items.Add(new LayoutItem
-                {
-                    Type = "Line", Left = left, Top = top, Width = 1, Height = height,
-                    Orientation = "V", Thickness = 1, StrokeColor = DefaultBorderColor
-                });
-            }
-
-            // Ensure right border
-            if (!existingXs.Any(x => Math.Abs(x - right) <= 3))
-            {
-                items.Add(new LayoutItem
-                {
-                    Type = "Line", Left = right, Top = top, Width = 1, Height = height,
-                    Orientation = "V", Thickness = 1, StrokeColor = DefaultBorderColor
-                });
-            }
-        }
-
-        return items;
+        return regions;
     }
 
-    /// <summary>
-    /// Stage 5: Enforce consistency rules.
-    /// </summary>
-    private static List<LayoutItem> EnforceConsistencyPass(List<LayoutItem> items)
-    {
-        foreach (var item in items)
-        {
-            // All text labels should be transparent
-            if (IsText(item))
-                item.Transparent = true;
-
-            // Default font size
-            if (IsText(item) && !item.FontSize.HasValue)
-                item.FontSize = 9;
-
-            // Clamp font sizes
-            if (item.FontSize.HasValue)
-                item.FontSize = Math.Clamp(item.FontSize.Value, 6, 24);
-
-            // Clamp thickness
-            if (item.Thickness.HasValue)
-                item.Thickness = Math.Clamp(item.Thickness.Value, 1, 6);
-
-            // Default border color for lines
-            if (IsLine(item) && string.IsNullOrWhiteSpace(item.StrokeColor))
-                item.StrokeColor = DefaultBorderColor;
-
-            // Ensure non-negative coordinates
-            item.Left = Math.Max(0, item.Left);
-            item.Top = Math.Max(0, item.Top);
-            item.Width = Math.Max(1, item.Width);
-            item.Height = Math.Max(1, item.Height);
-        }
-
-        return items;
-    }
-
+    // ═══════════════════════════════════════════
+    //  Stage 5: 선 격자 정규화
+    // ═══════════════════════════════════════════
 
     private static List<LayoutItem> NormalizeLineGridPass(List<LayoutItem> items)
     {
         var vLines = items.Where(IsVLine).ToList();
         var hLines = items.Where(IsHLine).ToList();
-        if (vLines.Count == 0 || hLines.Count == 0)
-        {
-            return items;
-        }
+        if (vLines.Count == 0 || hLines.Count == 0) return items;
 
-        var xGrid = vLines
-            .Select(x => x.Left)
-            .Distinct()
-            .OrderBy(x => x)
-            .ToList();
-        var yGrid = hLines
-            .Select(y => y.Top)
-            .Distinct()
-            .OrderBy(y => y)
-            .ToList();
+        var xGrid = vLines.Select(v => v.Left).Distinct().OrderBy(x => x).ToList();
+        var yGrid = hLines.Select(h => h.Top).Distinct().OrderBy(y => y).ToList();
 
         foreach (var h in hLines)
         {
             h.Top = SnapToNearest(h.Top, yGrid, 4);
             var right = h.Left + h.Width;
             h.Left = SnapToNearest(h.Left, xGrid, 8);
-            var snappedRight = SnapToNearest(right, xGrid, 8);
-            h.Width = Math.Max(1, snappedRight - h.Left);
+            h.Width = Math.Max(1, SnapToNearest(right, xGrid, 8) - h.Left);
             h.Height = 1;
             h.Orientation = "H";
         }
@@ -300,8 +224,7 @@ public sealed class LayoutPostProcessor
             v.Left = SnapToNearest(v.Left, xGrid, 4);
             var bottom = v.Top + v.Height;
             v.Top = SnapToNearest(v.Top, yGrid, 8);
-            var snappedBottom = SnapToNearest(bottom, yGrid, 8);
-            v.Height = Math.Max(1, snappedBottom - v.Top);
+            v.Height = Math.Max(1, SnapToNearest(bottom, yGrid, 8) - v.Top);
             v.Width = 1;
             v.Orientation = "V";
         }
@@ -309,134 +232,107 @@ public sealed class LayoutPostProcessor
         return items;
     }
 
+    // ═══════════════════════════════════════════
+    //  Stage 6: 일관성 규칙
+    // ═══════════════════════════════════════════
+
+    private static List<LayoutItem> EnforceConsistencyPass(List<LayoutItem> items)
+    {
+        foreach (var item in items)
+        {
+            if (IsText(item)) item.Transparent = true;
+            if (IsText(item) && !item.FontSize.HasValue) item.FontSize = 9;
+            if (item.FontSize.HasValue) item.FontSize = Math.Clamp(item.FontSize.Value, 6, 24);
+            if (item.Thickness.HasValue) item.Thickness = Math.Clamp(item.Thickness.Value, 1, 6);
+            if (IsLine(item) && string.IsNullOrWhiteSpace(item.StrokeColor)) item.StrokeColor = DefaultBorderColor;
+            item.Left = Math.Max(0, item.Left);
+            item.Top = Math.Max(0, item.Top);
+            item.Width = Math.Max(1, item.Width);
+            item.Height = Math.Max(1, item.Height);
+        }
+        return items;
+    }
+
+    // ═══════════════════════════════════════════
+    //  Stage 7: 캔버스 경계 클램핑
+    // ═══════════════════════════════════════════
+
     private static List<LayoutItem> EnforceCanvasBoundsPass(List<LayoutItem> items)
     {
         foreach (var item in items)
         {
             item.Left = Math.Clamp(item.Left, CanvasLeft, CanvasRight - 1);
             item.Top = Math.Clamp(item.Top, CanvasTop, CanvasBottom - 1);
+            item.Width = Math.Clamp(item.Width, 1, CanvasRight - item.Left);
+            item.Height = Math.Clamp(item.Height, 1, CanvasBottom - item.Top);
 
-            if (item.Width < 1) item.Width = 1;
-            if (item.Height < 1) item.Height = 1;
-
-            var maxWidth = Math.Max(1, CanvasRight - item.Left);
-            var maxHeight = Math.Max(1, CanvasBottom - item.Top);
-            item.Width = Math.Min(item.Width, maxWidth);
-            item.Height = Math.Min(item.Height, maxHeight);
-
-            // Keep line semantics after clamping.
-            if (IsHLine(item))
-            {
-                item.Height = 1;
-            }
-            else if (IsVLine(item))
-            {
-                item.Width = 1;
-            }
+            if (IsHLine(item)) item.Height = 1;
+            else if (IsVLine(item)) item.Width = 1;
         }
-
         return items;
     }
 
+    // ═══════════════════════════════════════════
+    //  Stage 8: 중복 선 제거
+    // ═══════════════════════════════════════════
+
     private static List<LayoutItem> RemoveDuplicateBordersPass(List<LayoutItem> items)
     {
-        var output = new List<LayoutItem>(items.Count);
-        var lineGroups = items
+        var chosenLines = items
             .Where(IsLine)
-            .GroupBy(i => $"{NormalizeOrientation(i)}|{i.Left}|{i.Top}|{i.Width}|{i.Height}");
+            .GroupBy(i => $"{NormalizeOrientation(i)}|{i.Left}|{i.Top}|{i.Width}|{i.Height}")
+            .Select(g => g.OrderBy(i => i.Thickness.GetValueOrDefault(1)).First())
+            .ToHashSet();
 
-        var chosenLines = new HashSet<LayoutItem>();
-        foreach (var group in lineGroups)
-        {
-            var chosen = group
-                .OrderBy(i => i.Thickness.GetValueOrDefault(1))
-                .ThenBy(i => string.IsNullOrWhiteSpace(i.StrokeColor) ? 1 : 0)
-                .First();
-            chosenLines.Add(chosen);
-        }
-
-        foreach (var item in items)
-        {
-            if (!IsLine(item))
-            {
-                output.Add(item);
-                continue;
-            }
-
-            if (chosenLines.Contains(item))
-            {
-                output.Add(item);
-            }
-        }
-
-        return output;
+        return items.Where(i => !IsLine(i) || chosenLines.Contains(i)).ToList();
     }
 
-    /// <summary>
-    /// Stage 6: Sort by Z-order. Rect (background) → Line (border) → Image → Text (top).
-    /// </summary>
-    private static List<LayoutItem> SortByZOrder(List<LayoutItem> items)
-    {
-        return items
-            .OrderBy(i => ZOrderPriority(i.Type))
-            .ThenBy(i => i.Top)
-            .ThenBy(i => i.Left)
-            .ToList();
-    }
+    // ═══════════════════════════════════════════
+    //  Stage 9: Z-Order 정렬
+    // ═══════════════════════════════════════════
 
-    private static int ZOrderPriority(string? type) => (type ?? string.Empty).ToLowerInvariant() switch
+    private static List<LayoutItem> SortByZOrder(List<LayoutItem> items) =>
+        items.OrderBy(i => ZPriority(i.Type)).ThenBy(i => i.Top).ThenBy(i => i.Left).ToList();
+
+    private static int ZPriority(string? type) => (type ?? "").ToLowerInvariant() switch
     {
-        "rect" => 0,
-        "line" => 1,
-        "image" => 2,
-        "text" => 3,
-        _ => 4
+        "rect" => 0, "line" => 1, "image" => 2, "text" => 3, _ => 4
     };
 
-    // --- Helpers ---
+    // ═══════════════════════════════════════════
+    //  공통 헬퍼
+    // ═══════════════════════════════════════════
 
-    private static void AlignCoordinate(List<LayoutItem> items,
-        Func<LayoutItem, int> getCoord, Action<LayoutItem, int> setCoord, int threshold)
+    private static void AlignCoordinate(
+        List<LayoutItem> items, Func<LayoutItem, int> get, Action<LayoutItem, int> set, int threshold)
     {
-        var groups = GroupByProximity(items, getCoord, threshold);
-        foreach (var group in groups)
+        foreach (var group in GroupByProximity(items, get, threshold))
         {
             if (group.Count < 2) continue;
-
-            // Use the most common value (mode) as canonical
-            var canonical = group
-                .GroupBy(i => getCoord(i))
-                .OrderByDescending(g => g.Count())
-                .First().Key;
-
-            foreach (var item in group)
-                setCoord(item, canonical);
+            var canonical = group.GroupBy(get).OrderByDescending(g => g.Count()).First().Key;
+            foreach (var item in group) set(item, canonical);
         }
     }
 
     private static List<List<LayoutItem>> GroupByProximity(
-        List<LayoutItem> items, Func<LayoutItem, int> getCoord, int threshold)
+        List<LayoutItem> items, Func<LayoutItem, int> get, int threshold)
     {
-        var sorted = items.OrderBy(getCoord).ToList();
+        var sorted = items.OrderBy(get).ToList();
         var groups = new List<List<LayoutItem>>();
-
         if (sorted.Count == 0) return groups;
 
-        var currentGroup = new List<LayoutItem> { sorted[0] };
+        var current = new List<LayoutItem> { sorted[0] };
         for (var i = 1; i < sorted.Count; i++)
         {
-            if (Math.Abs(getCoord(sorted[i]) - getCoord(sorted[i - 1])) <= threshold)
-            {
-                currentGroup.Add(sorted[i]);
-            }
+            if (Math.Abs(get(sorted[i]) - get(sorted[i - 1])) <= threshold)
+                current.Add(sorted[i]);
             else
             {
-                groups.Add(currentGroup);
-                currentGroup = [sorted[i]];
+                groups.Add(current);
+                current = [sorted[i]];
             }
         }
-
-        groups.Add(currentGroup);
+        groups.Add(current);
         return groups;
     }
 
@@ -449,69 +345,33 @@ public sealed class LayoutPostProcessor
         foreach (var g in grid)
         {
             var dist = Math.Abs(value - g);
-            if (dist < minDist)
-            {
-                minDist = dist;
-                closest = g;
-            }
-
+            if (dist < minDist) { minDist = dist; closest = g; }
             if (dist == 0) break;
-            if (g > value + threshold) break; // sorted, no need to check further
+            if (g > value + threshold) break;
         }
-
         return minDist <= threshold ? closest : value;
     }
 
-    private static void Increment(Dictionary<int, int> freq, int key)
-    {
+    private static void Increment(Dictionary<int, int> freq, int key) =>
         freq[key] = freq.GetValueOrDefault(key) + 1;
-    }
 
-    private static bool IsText(LayoutItem item) =>
-        string.Equals(item.Type, "Text", StringComparison.OrdinalIgnoreCase);
-
-    private static bool IsLine(LayoutItem item) =>
-        string.Equals(item.Type, "Line", StringComparison.OrdinalIgnoreCase);
-
-    private static bool IsHLine(LayoutItem item) =>
-        IsLine(item) && (string.Equals(item.Orientation, "H", StringComparison.OrdinalIgnoreCase) || item.Width > item.Height);
-
-    private static bool IsVLine(LayoutItem item) =>
-        IsLine(item) && (string.Equals(item.Orientation, "V", StringComparison.OrdinalIgnoreCase) || item.Height > item.Width);
-
-    private static string NormalizeOrientation(LayoutItem item)
+    private static LayoutItem MakeBorderVLine(int left, int top, int height) => new()
     {
-        if (IsHLine(item)) return "H";
-        if (IsVLine(item)) return "V";
-        return (item.Orientation ?? string.Empty).Trim().ToUpperInvariant();
-    }
+        Type = "Line", Left = left, Top = top, Width = 1, Height = height,
+        Orientation = "V", Thickness = 1, StrokeColor = DefaultBorderColor
+    };
 
-    private static LayoutItem CloneItem(LayoutItem source)
-    {
-        return new LayoutItem
-        {
-            Name = source.Name,
-            Type = source.Type,
-            Left = source.Left,
-            Top = source.Top,
-            Width = source.Width,
-            Height = source.Height,
-            Caption = source.Caption,
-            Align = source.Align,
-            FontSize = source.FontSize,
-            Bold = source.Bold,
-            Transparent = source.Transparent,
-            TextColor = source.TextColor,
-            Orientation = source.Orientation,
-            Thickness = source.Thickness,
-            StrokeColor = source.StrokeColor,
-            FillColor = source.FillColor,
-            Filled = source.Filled,
-            Stretch = source.Stretch
-        };
-    }
+    // ── 타입 판별 ──
+    private static bool IsText(LayoutItem i) => i.Type.Equals("Text", StringComparison.OrdinalIgnoreCase);
+    private static bool IsLine(LayoutItem i) => i.Type.Equals("Line", StringComparison.OrdinalIgnoreCase);
+    private static bool IsHLine(LayoutItem i) => IsLine(i) && (i.Orientation?.Equals("H", StringComparison.OrdinalIgnoreCase) == true || i.Width > i.Height);
+    private static bool IsVLine(LayoutItem i) => IsLine(i) && (i.Orientation?.Equals("V", StringComparison.OrdinalIgnoreCase) == true || i.Height > i.Width);
+
+    private static string NormalizeOrientation(LayoutItem i) =>
+        IsHLine(i) ? "H" : IsVLine(i) ? "V" : (i.Orientation ?? "").Trim().ToUpperInvariant();
 }
 
+/// <summary>후처리 파이프라인의 각 단계를 개별적으로 켜고 끌 수 있는 옵션.</summary>
 public sealed class PostProcessingOptions
 {
     public bool SnapToGrid { get; set; } = true;

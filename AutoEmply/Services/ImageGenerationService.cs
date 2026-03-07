@@ -1,8 +1,14 @@
-﻿using AutoEmply.Models;
+using AutoEmply.Models;
 using AutoEmply.Services.Prompts;
 
 namespace AutoEmply.Services;
 
+/// <summary>
+/// 이미지/PDF 업로드 → Claude AI 분석 → LayoutSpec 또는 ZIP 생성까지의 전체 흐름을 조율하는 서비스.
+/// Controller가 직접 ClaudeClient를 호출하지 않고, 이 서비스를 통해 일관된 파이프라인을 탄다.
+///
+/// [이미지 업로드] → ValidateAndRead → [Claude AI] → PostProcess → [LayoutSpec / ZIP]
+/// </summary>
 public sealed class ImageGenerationService(
     ClaudeClient claudeClient,
     DelphiGenerator delphiGenerator,
@@ -12,217 +18,139 @@ public sealed class ImageGenerationService(
 {
     private const long MaxImageBytes = 5 * 1024 * 1024;
 
+    // ───────────────────────────────────────────
+    //  공개 API
+    // ───────────────────────────────────────────
+
+    /// <summary>이미지 → Claude → LayoutSpec JSON 반환.</summary>
     public async Task<ServiceResult<LayoutSpec>> GenerateLayoutSpecAsync(
-        string formName,
-        IFormFile image,
-        Guid? presetId,
-        CancellationToken cancellationToken)
+        string formName, IFormFile image, Guid? presetId, CancellationToken ct)
     {
-        var trimmedName = formName.Trim();
-        var preset = await promptPresetService.ResolveAsync(presetId, cancellationToken);
-        if (preset is null)
-        {
-            return ServiceResult<LayoutSpec>.Fail(404, "Prompt preset not found.");
-        }
+        var (preset, imageData, earlyFail) = await PrepareAsync(formName, image, presetId, ct);
+        if (earlyFail is not null)
+            return ServiceResult<LayoutSpec>.Fail(earlyFail.Value.Code, earlyFail.Value.Message);
 
-        var imageCheck = await ValidateAndReadImageAsync(image, cancellationToken);
-        if (!imageCheck.Success)
-        {
-            return ServiceResult<LayoutSpec>.Fail(400, imageCheck.Error!);
-        }
-
-        var result = await GenerateLayoutSpecWithServerTimeoutAsync(
-            trimmedName,
-            imageCheck.MediaType!,
-            imageCheck.Base64Data!,
-            preset);
+        var result = await CallClaudeWithTimeoutAsync(
+            (token) => claudeClient.GenerateLayoutSpecAsync(
+                formName.Trim(), imageData!.MediaType, imageData.Base64Data, preset!, token));
 
         if (!result.Success)
-        {
             return ServiceResult<LayoutSpec>.Fail(result.StatusCode, result.Error ?? "Layout generation failed.", result.Details);
-        }
 
-        var layoutSpec = layoutPostProcessor.Process(result.LayoutSpec!);
-        return ServiceResult<LayoutSpec>.Ok(layoutSpec);
+        var processed = layoutPostProcessor.Process(result.LayoutSpec!);
+        return ServiceResult<LayoutSpec>.Ok(processed);
     }
 
+    /// <summary>이미지 → Claude → Delphi ZIP(dfm+pas) 반환.</summary>
     public async Task<ServiceResult<ExportArtifact>> ExportZipAsync(
-        string formName,
-        IFormFile image,
-        Guid? presetId,
-        CancellationToken cancellationToken)
+        string formName, IFormFile image, Guid? presetId, CancellationToken ct)
     {
         var trimmedName = formName.Trim();
-        var layoutResult = await GenerateLayoutSpecAsync(trimmedName, image, presetId, cancellationToken);
+        var layoutResult = await GenerateLayoutSpecAsync(trimmedName, image, presetId, ct);
         if (!layoutResult.Success)
-        {
             return ServiceResult<ExportArtifact>.Fail(layoutResult.StatusCode, layoutResult.Error!, layoutResult.Details);
-        }
 
         var bytes = delphiGenerator.GenerateZip(trimmedName, layoutResult.Value!);
         return ServiceResult<ExportArtifact>.Ok(new ExportArtifact(bytes, $"{trimmedName}.zip"));
     }
 
+    /// <summary>이미지 → Claude → FormStructure(논리 구조) 반환.</summary>
     public async Task<ServiceResult<FormStructure>> GenerateStructureAsync(
-        string formName,
-        IFormFile image,
-        Guid? presetId,
-        CancellationToken cancellationToken)
+        string formName, IFormFile image, Guid? presetId, CancellationToken ct)
     {
-        var trimmedName = formName.Trim();
-        var preset = await promptPresetService.ResolveAsync(presetId, cancellationToken);
-        if (preset is null)
-        {
-            return ServiceResult<FormStructure>.Fail(404, "Prompt preset not found.");
-        }
+        var (preset, imageData, earlyFail) = await PrepareAsync(formName, image, presetId, ct);
+        if (earlyFail is not null)
+            return ServiceResult<FormStructure>.Fail(earlyFail.Value.Code, earlyFail.Value.Message);
 
-        var imageCheck = await ValidateAndReadImageAsync(image, cancellationToken);
-        if (!imageCheck.Success)
-        {
-            return ServiceResult<FormStructure>.Fail(400, imageCheck.Error!);
-        }
-
-        var result = await GenerateFormStructureWithServerTimeoutAsync(
-            trimmedName,
-            imageCheck.MediaType!,
-            imageCheck.Base64Data!,
-            preset);
+        var result = await CallClaudeWithTimeoutAsync(
+            (token) => claudeClient.GenerateFormStructureAsync(
+                formName.Trim(), imageData!.MediaType, imageData.Base64Data, preset!, token));
 
         if (!result.Success)
-        {
             return ServiceResult<FormStructure>.Fail(result.StatusCode, result.Error ?? "Structure generation failed.", result.Details);
-        }
 
         return ServiceResult<FormStructure>.Ok(result.FormStructure!);
     }
 
-    private async Task<ClaudeLayoutResult> GenerateLayoutSpecWithServerTimeoutAsync(
-        string formName,
-        string mediaType,
-        string fileBase64,
-        ResolvedPromptPreset preset)
-    {
-        var timeoutSeconds = configuration.GetValue<int?>("Anthropic:RequestTimeoutSeconds") ?? 240;
-        using var aiCts = new CancellationTokenSource(TimeSpan.FromSeconds(Math.Max(30, timeoutSeconds)));
+    // ───────────────────────────────────────────
+    //  내부 헬퍼
+    // ───────────────────────────────────────────
 
-        return await claudeClient.GenerateLayoutSpecAsync(
-            formName,
-            mediaType,
-            fileBase64,
-            preset,
-            aiCts.Token);
+    /// <summary>프리셋 조회 + 이미지 검증을 한 번에 수행.</summary>
+    private async Task<(ResolvedPromptPreset? Preset, ImageData? Image, (int Code, string Message)? Failure)>
+        PrepareAsync(string formName, IFormFile image, Guid? presetId, CancellationToken ct)
+    {
+        var preset = await promptPresetService.ResolveAsync(presetId, ct);
+        if (preset is null)
+            return (null, null, (404, "Prompt preset not found."));
+
+        var imageData = await ValidateAndReadImageAsync(image, ct);
+        if (imageData is null)
+            return (null, null, (400, "Image validation failed."));
+
+        return (preset, imageData, null);
     }
 
-    private async Task<ClaudeFormStructureResult> GenerateFormStructureWithServerTimeoutAsync(
-        string formName,
-        string mediaType,
-        string fileBase64,
-        ResolvedPromptPreset preset)
+    /// <summary>설정된 타임아웃 내에서 Claude API를 호출한다.</summary>
+    private async Task<T> CallClaudeWithTimeoutAsync<T>(Func<CancellationToken, Task<T>> callClaude)
     {
         var timeoutSeconds = configuration.GetValue<int?>("Anthropic:RequestTimeoutSeconds") ?? 240;
-        using var aiCts = new CancellationTokenSource(TimeSpan.FromSeconds(Math.Max(30, timeoutSeconds)));
-
-        return await claudeClient.GenerateFormStructureAsync(
-            formName,
-            mediaType,
-            fileBase64,
-            preset,
-            aiCts.Token);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(Math.Max(30, timeoutSeconds)));
+        return await callClaude(cts.Token);
     }
 
-    private static async Task<ImageValidationResult> ValidateAndReadImageAsync(IFormFile? image, CancellationToken cancellationToken)
-    {
-        if (image is null || image.Length == 0)
-        {
-            return ImageValidationResult.Fail("Image/PDF file is required.");
-        }
+    // ───────────────────────────────────────────
+    //  이미지 검증
+    // ───────────────────────────────────────────
 
-        if (image.Length > MaxImageBytes)
-        {
-            return ImageValidationResult.Fail("Image/PDF size exceeded (max 5MB).");
-        }
+    private static async Task<ImageData?> ValidateAndReadImageAsync(IFormFile? image, CancellationToken ct)
+    {
+        if (image is null || image.Length == 0) return null;
+        if (image.Length > MaxImageBytes) return null;
 
         var mediaType = ResolveMediaType(image.FileName, image.ContentType);
-        if (mediaType is null)
-        {
-            return ImageValidationResult.Fail("Unsupported file type.");
-        }
+        if (mediaType is null) return null;
 
         await using var stream = image.OpenReadStream();
         using var memory = new MemoryStream();
-        await stream.CopyToAsync(memory, cancellationToken);
-        var base64 = Convert.ToBase64String(memory.ToArray());
-        return ImageValidationResult.Ok(mediaType, base64);
+        await stream.CopyToAsync(memory, ct);
+        return new ImageData(mediaType, Convert.ToBase64String(memory.ToArray()));
     }
 
     private static string? ResolveMediaType(string fileName, string? contentType)
     {
-        var byExt = GetMediaTypeFromExtension(Path.GetExtension(fileName));
-        var byContentType = NormalizeContentType(contentType);
+        var byExt = MapExtensionToMediaType(Path.GetExtension(fileName));
+        var byCt = NormalizeContentType(contentType);
 
-        if (byExt is not null && byContentType is not null && !string.Equals(byExt, byContentType, StringComparison.Ordinal))
-        {
+        // 확장자와 Content-Type이 모두 있는데 불일치하면 거부
+        if (byExt is not null && byCt is not null && byExt != byCt)
             return null;
-        }
 
-        return byExt ?? byContentType;
+        return byExt ?? byCt;
     }
 
-    private static string? NormalizeContentType(string? contentType)
-    {
-        if (string.IsNullOrWhiteSpace(contentType))
+    private static string? NormalizeContentType(string? contentType) =>
+        contentType?.Trim().ToLowerInvariant() switch
         {
-            return null;
-        }
-
-        return contentType.Trim().ToLowerInvariant() switch
-        {
-            "image/jpg" => "image/jpeg",
-            "image/jpeg" => "image/jpeg",
+            "image/jpg" or "image/jpeg" => "image/jpeg",
             "image/png" => "image/png",
             "image/gif" => "image/gif",
             "image/webp" => "image/webp",
             "application/pdf" => "application/pdf",
             _ => null
         };
-    }
 
-    private static string? GetMediaTypeFromExtension(string extension)
-    {
-        return extension.Trim().ToLowerInvariant() switch
+    private static string? MapExtensionToMediaType(string extension) =>
+        extension.Trim().ToLowerInvariant() switch
         {
-            ".jpg" => "image/jpeg",
-            ".jpeg" => "image/jpeg",
+            ".jpg" or ".jpeg" => "image/jpeg",
             ".png" => "image/png",
             ".gif" => "image/gif",
             ".webp" => "image/webp",
             ".pdf" => "application/pdf",
             _ => null
         };
-    }
-}
 
-public sealed record ServiceResult<T>(
-    bool Success,
-    int StatusCode,
-    string? Error,
-    IReadOnlyCollection<string>? Details,
-    T? Value)
-{
-    public static ServiceResult<T> Ok(T value) =>
-        new(true, 200, null, null, value);
-
-    public static ServiceResult<T> Fail(int statusCode, string error, IReadOnlyCollection<string>? details = null) =>
-        new(false, statusCode, error, details, default);
-}
-
-public sealed record ExportArtifact(byte[] Bytes, string FileName);
-
-internal sealed record ImageValidationResult(bool Success, string? Error, string? MediaType, string? Base64Data)
-{
-    public static ImageValidationResult Ok(string mediaType, string base64Data) =>
-        new(true, null, mediaType, base64Data);
-
-    public static ImageValidationResult Fail(string error) =>
-        new(false, error, null, null);
+    /// <summary>검증을 통과한 이미지 데이터.</summary>
+    private sealed record ImageData(string MediaType, string Base64Data);
 }

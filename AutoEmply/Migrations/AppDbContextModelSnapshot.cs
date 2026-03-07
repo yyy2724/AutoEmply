@@ -15,6 +15,60 @@ namespace AutoEmply.Migrations
             modelBuilder
                 .HasAnnotation("ProductVersion", "9.0.4");
 
+            modelBuilder.Entity("AutoEmply.Entities.ReportTemplate", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("name");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("category");
+
+                    b.Property<string>("DfmContent")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("dfm_content");
+
+                    b.Property<string>("PasContent")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("pas_content");
+
+                    b.Property<string>("OriginalFormName")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("original_form_name");
+
+                    b.Property<string>("PreviewContentType")
+                        .HasColumnType("text")
+                        .HasColumnName("preview_content_type");
+
+                    b.Property<byte[]>("PreviewData")
+                        .HasColumnType("bytea")
+                        .HasColumnName("preview_data");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Category");
+
+                    b.ToTable("report_templates", (string)null);
+                });
+
             modelBuilder.Entity("AutoEmply.Entities.PromptPreset", b =>
                 {
                     b.Property<Guid>("Id")

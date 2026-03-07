@@ -7,6 +7,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 {
     public DbSet<PromptPreset> PromptPresets => Set<PromptPreset>();
     public DbSet<PromptVersion> PromptVersions => Set<PromptVersion>();
+    public DbSet<ReportTemplate> ReportTemplates => Set<ReportTemplate>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -46,6 +47,23 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
                 .WithMany(x => x.Versions)
                 .HasForeignKey(x => x.PresetId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ReportTemplate>(entity =>
+        {
+            entity.ToTable("report_templates");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).HasColumnName("id");
+            entity.Property(x => x.Name).HasColumnName("name").IsRequired();
+            entity.Property(x => x.Category).HasColumnName("category").IsRequired();
+            entity.Property(x => x.DfmContent).HasColumnName("dfm_content").IsRequired();
+            entity.Property(x => x.PasContent).HasColumnName("pas_content").IsRequired();
+            entity.Property(x => x.OriginalFormName).HasColumnName("original_form_name").IsRequired();
+            entity.Property(x => x.PreviewContentType).HasColumnName("preview_content_type");
+            entity.Property(x => x.PreviewData).HasColumnName("preview_data");
+            entity.Property(x => x.CreatedAt).HasColumnName("created_at");
+            entity.Property(x => x.UpdatedAt).HasColumnName("updated_at");
+            entity.HasIndex(x => x.Category);
         });
     }
 }

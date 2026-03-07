@@ -1,0 +1,391 @@
+@page "/library"
+@using System.Net.Http.Json
+@using System.Text
+@using System.Text.Json
+@inject HttpClient Http
+@inject IJSRuntime JS
+
+<PageTitle>결과지 도서관</PageTitle>
+
+<MudPaper Class="pa-5 mb-3" Elevation="1" Outlined="true">
+    <MudStack Spacing="1">
+        <MudText Typo="Typo.h5">결과지 도서관</MudText>
+        <MudText Typo="Typo.body2" Class="mud-secondary-text">
+            저장된 보고서 템플릿을 미리보기하고, 원하는 이름으로 다운로드할 수 있습니다.
+        </MudText>
+    </MudStack>
+</MudPaper>
+
+<MudGrid Spacing="3">
+    @* ───────── 왼쪽: 카테고리 탭 + 목록 ───────── *@
+    <MudItem xs="12" md="4">
+        <MudPaper Class="pa-4" Outlined="true" Style="min-height:500px;">
+            <MudStack Spacing="2">
+                <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                    <MudText Typo="Typo.h6">템플릿 목록</MudText>
+                    <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="LoadTemplatesAsync" Disabled="@IsBusy">새로고침</MudButton>
+                </MudStack>
+
+                <MudTextField @bind-Value="SearchText" Label="검색" Variant="Variant.Outlined" Dense="true"
+                              Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                              Immediate="true" Clearable="true" />
+
+                @if (FilteredTemplates.Count > 0)
+                {
+                    <MudTabs @bind-ActivePanelIndex="ActiveTabIndex" Elevation="0" Rounded="true" ApplyEffectsToContainer="true" PanelClass="pa-2">
+                        <MudTabPanel Text="전체">
+                            @RenderTemplateList(FilteredTemplates)
+                        </MudTabPanel>
+                        @foreach (var cat in FilteredCategories)
+                        {
+                            <MudTabPanel Text="@cat">
+                                @RenderTemplateList(FilteredTemplates.Where(t => t.Category == cat).ToList())
+                            </MudTabPanel>
+                        }
+                    </MudTabs>
+                }
+                else
+                {
+                    <MudText Typo="Typo.body2" Class="mud-secondary-text">등록된 템플릿이 없습니다.</MudText>
+                }
+            </MudStack>
+        </MudPaper>
+
+        @* ── 업로드 섹션 ── *@
+        <MudPaper Class="pa-4 mt-3" Outlined="true">
+            <MudStack Spacing="2">
+                <MudText Typo="Typo.h6">새 템플릿 등록</MudText>
+                <MudTextField @bind-Value="UploadName" Label="템플릿 이름" Variant="Variant.Outlined" />
+                <MudTextField @bind-Value="UploadCategory" Label="카테고리" Variant="Variant.Outlined"
+                              Placeholder="카테고리를 입력하거나 아래에서 선택" />
+                @if (Categories.Count > 0)
+                {
+                    <MudStack Row="true" Spacing="1" Class="flex-wrap">
+                        @foreach (var cat in Categories)
+                        {
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
+                                     Color="@(UploadCategory == cat ? Color.Primary : Color.Default)"
+                                     OnClick="@(() => UploadCategory = cat)">@cat</MudChip>
+                        }
+                    </MudStack>
+                }
+                <MudText Typo="Typo.subtitle2">DFM 파일</MudText>
+                <InputFile OnChange="OnDfmChanged" accept=".dfm" />
+                <MudText Typo="Typo.subtitle2">PAS 파일</MudText>
+                <InputFile OnChange="OnPasChanged" accept=".pas" />
+                <MudText Typo="Typo.subtitle2">미리보기 이미지/PDF (선택)</MudText>
+                <InputFile OnChange="OnPreviewChanged" accept=".jpg,.jpeg,.png,.gif,.webp,.pdf" />
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="UploadAsync" Disabled="@IsBusy">업로드</MudButton>
+                @if (!string.IsNullOrWhiteSpace(UploadMessage))
+                {
+                    <MudAlert Severity="@UploadSeverity" Dense="true">@UploadMessage</MudAlert>
+                }
+            </MudStack>
+        </MudPaper>
+    </MudItem>
+
+    @* ───────── 오른쪽: 미리보기 + 다운로드 ───────── *@
+    <MudItem xs="12" md="8">
+        <MudPaper Class="pa-4" Outlined="true" Style="min-height:500px;">
+            @if (SelectedTemplate is null)
+            {
+                <MudStack AlignItems="AlignItems.Center" Justify="Justify.Center" Style="min-height:400px;">
+                    <MudIcon Icon="@Icons.Material.Filled.LibraryBooks" Size="Size.Large" Class="mud-secondary-text" />
+                    <MudText Typo="Typo.body1" Class="mud-secondary-text">왼쪽 목록에서 템플릿을 선택하세요.</MudText>
+                </MudStack>
+            }
+            else
+            {
+                <MudStack Spacing="3">
+                    <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
+                        <MudStack Spacing="0">
+                            <MudText Typo="Typo.h6">@SelectedTemplate.Name</MudText>
+                            <MudText Typo="Typo.caption" Class="mud-secondary-text">
+                                카테고리: @SelectedTemplate.Category · 원본 폼: @SelectedTemplate.OriginalFormName
+                            </MudText>
+                        </MudStack>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small"
+                                   OnClick="DeleteSelectedAsync" Disabled="@IsBusy">삭제</MudButton>
+                    </MudStack>
+
+                    <MudDivider />
+
+                    @* 미리보기 *@
+                    @if (SelectedTemplate.HasPreview)
+                    {
+                        <MudText Typo="Typo.subtitle2">미리보기</MudText>
+                        @if (SelectedTemplate.PreviewContentType == "application/pdf")
+                        {
+                            <MudPaper Outlined="true" Class="rounded overflow-hidden">
+                                <iframe src="@PreviewUrl" width="100%" height="500" frameborder="0" />
+                            </MudPaper>
+                        }
+                        else
+                        {
+                            <MudPaper Outlined="true" Class="rounded overflow-hidden d-inline-block">
+                                <MudImage Src="@PreviewUrl" Alt="미리보기" ObjectFit="ObjectFit.Contain"
+                                          Fluid="true" Class="d-block" />
+                            </MudPaper>
+                        }
+                    }
+                    else
+                    {
+                        <MudAlert Severity="Severity.Info" Dense="true">미리보기 이미지가 없습니다.</MudAlert>
+                    }
+
+                    <MudDivider />
+
+                    @* 다운로드 *@
+                    <MudText Typo="Typo.subtitle2">다운로드</MudText>
+                    <MudTextField @bind-Value="DownloadFormName" Label="다운받을 결과지 이름"
+                                  Variant="Variant.Outlined" Placeholder="예: Form_QREmply25"
+                                  HelperText="입력한 이름으로 파일명과 내부 클래스가 모두 치환됩니다." />
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                               OnClick="DownloadAsync" Disabled="@(IsBusy || string.IsNullOrWhiteSpace(DownloadFormName))">
+                        ZIP 다운로드
+                    </MudButton>
+
+                    @if (!string.IsNullOrWhiteSpace(DownloadMessage))
+                    {
+                        <MudAlert Severity="Severity.Info" Dense="true">@DownloadMessage</MudAlert>
+                    }
+                </MudStack>
+            }
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+
+@code {
+    // ── 상태 ──
+    private bool IsBusy { get; set; }
+    private List<TemplateItem> AllTemplates { get; set; } = new();
+    private List<string> Categories { get; set; } = new();
+    private int ActiveTabIndex { get; set; }
+    private TemplateItem? SelectedTemplate { get; set; }
+    private string? SearchText { get; set; }
+
+    private List<TemplateItem> FilteredTemplates => string.IsNullOrWhiteSpace(SearchText)
+        ? AllTemplates
+        : AllTemplates.Where(t =>
+            t.Name.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ||
+            t.Category.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ||
+            t.OriginalFormName.Contains(SearchText, StringComparison.OrdinalIgnoreCase))
+          .ToList();
+
+    private List<string> FilteredCategories =>
+        FilteredTemplates.Select(t => t.Category).Distinct().OrderBy(c => c).ToList();
+    private string PreviewUrl => SelectedTemplate is not null
+        ? $"{Http.BaseAddress}api/report-templates/{SelectedTemplate.Id}/preview"
+        : "";
+
+    // ── 다운로드 ──
+    private string DownloadFormName { get; set; } = string.Empty;
+    private string DownloadMessage { get; set; } = string.Empty;
+
+    // ── 업로드 ──
+    private string UploadName { get; set; } = string.Empty;
+    private string UploadCategory { get; set; } = string.Empty;
+    private IBrowserFile? UploadDfm { get; set; }
+    private IBrowserFile? UploadPas { get; set; }
+    private IBrowserFile? UploadPreview { get; set; }
+    private string UploadMessage { get; set; } = string.Empty;
+    private Severity UploadSeverity { get; set; } = Severity.Info;
+
+    protected override async Task OnInitializedAsync() => await LoadTemplatesAsync();
+
+    // ═══════════════════════════════════════
+    //  목록 로드
+    // ═══════════════════════════════════════
+
+    private async Task LoadTemplatesAsync()
+    {
+        try
+        {
+            IsBusy = true;
+            AllTemplates = await Http.GetFromJsonAsync<List<TemplateItem>>("api/report-templates") ?? new();
+            Categories = AllTemplates.Select(t => t.Category).Distinct().OrderBy(c => c).ToList();
+        }
+        catch (Exception ex)
+        {
+            UploadMessage = $"목록 조회 실패: {ex.Message}";
+            UploadSeverity = Severity.Error;
+        }
+        finally { IsBusy = false; }
+    }
+
+    // ═══════════════════════════════════════
+    //  선택 / 미리보기
+    // ═══════════════════════════════════════
+
+    private void SelectTemplate(TemplateItem template)
+    {
+        SelectedTemplate = template;
+        DownloadFormName = template.OriginalFormName;
+        DownloadMessage = string.Empty;
+    }
+
+    // ═══════════════════════════════════════
+    //  다운로드
+    // ═══════════════════════════════════════
+
+    private async Task DownloadAsync()
+    {
+        if (SelectedTemplate is null || string.IsNullOrWhiteSpace(DownloadFormName)) return;
+
+        try
+        {
+            IsBusy = true;
+            DownloadMessage = string.Empty;
+            var url = $"{Http.BaseAddress}api/report-templates/{SelectedTemplate.Id}/download?formName={Uri.EscapeDataString(DownloadFormName.Trim())}";
+            await JS.InvokeVoidAsync("open", url, "_blank");
+            DownloadMessage = "다운로드를 시작했습니다.";
+        }
+        catch (Exception ex) { DownloadMessage = $"오류: {ex.Message}"; }
+        finally { IsBusy = false; }
+    }
+
+    // ═══════════════════════════════════════
+    //  업로드
+    // ═══════════════════════════════════════
+
+    private void OnDfmChanged(InputFileChangeEventArgs e) => UploadDfm = e.File;
+    private void OnPasChanged(InputFileChangeEventArgs e) => UploadPas = e.File;
+    private void OnPreviewChanged(InputFileChangeEventArgs e) => UploadPreview = e.File;
+
+    private async Task UploadAsync()
+    {
+        if (string.IsNullOrWhiteSpace(UploadName) || string.IsNullOrWhiteSpace(UploadCategory))
+        {
+            UploadMessage = "템플릿 이름과 카테고리는 필수입니다.";
+            UploadSeverity = Severity.Warning;
+            return;
+        }
+        if (UploadDfm is null || UploadPas is null)
+        {
+            UploadMessage = "DFM 파일과 PAS 파일은 필수입니다.";
+            UploadSeverity = Severity.Warning;
+            return;
+        }
+
+        try
+        {
+            IsBusy = true;
+            UploadMessage = string.Empty;
+
+            var content = new MultipartFormDataContent();
+            content.Add(new StringContent(UploadName.Trim(), Encoding.UTF8), "name");
+            content.Add(new StringContent(UploadCategory.Trim(), Encoding.UTF8), "category");
+            content.Add(await ToStreamContent(UploadDfm), "dfmFile", UploadDfm.Name);
+            content.Add(await ToStreamContent(UploadPas), "pasFile", UploadPas.Name);
+
+            if (UploadPreview is { Size: > 0 })
+            {
+                var previewContent = await ToStreamContent(UploadPreview);
+                if (!string.IsNullOrWhiteSpace(UploadPreview.ContentType))
+                    previewContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(UploadPreview.ContentType);
+                content.Add(previewContent, "previewFile", UploadPreview.Name);
+            }
+
+            var response = await Http.PostAsync("api/report-templates", content);
+            var body = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                UploadMessage = $"업로드 실패: {body}";
+                UploadSeverity = Severity.Error;
+                return;
+            }
+
+            UploadMessage = "업로드 완료!";
+            UploadSeverity = Severity.Success;
+            UploadName = string.Empty;
+            UploadCategory = string.Empty;
+            UploadDfm = null;
+            UploadPas = null;
+            UploadPreview = null;
+            await LoadTemplatesAsync();
+        }
+        catch (Exception ex)
+        {
+            UploadMessage = $"오류: {ex.Message}";
+            UploadSeverity = Severity.Error;
+        }
+        finally { IsBusy = false; }
+    }
+
+    // ═══════════════════════════════════════
+    //  삭제
+    // ═══════════════════════════════════════
+
+    private async Task DeleteSelectedAsync()
+    {
+        if (SelectedTemplate is null) return;
+        var ok = await JS.InvokeAsync<bool>("confirm", $"'{SelectedTemplate.Name}' 템플릿을 삭제할까요?");
+        if (!ok) return;
+
+        try
+        {
+            IsBusy = true;
+            var response = await Http.DeleteAsync($"api/report-templates/{SelectedTemplate.Id}");
+            if (!response.IsSuccessStatusCode)
+            {
+                DownloadMessage = "삭제 실패";
+                return;
+            }
+            SelectedTemplate = null;
+            await LoadTemplatesAsync();
+        }
+        catch (Exception ex) { DownloadMessage = $"삭제 오류: {ex.Message}"; }
+        finally { IsBusy = false; }
+    }
+
+    // ═══════════════════════════════════════
+    //  헬퍼
+    // ═══════════════════════════════════════
+
+    private static async Task<ByteArrayContent> ToStreamContent(IBrowserFile file)
+    {
+        await using var stream = file.OpenReadStream(10 * 1024 * 1024);
+        using var ms = new MemoryStream();
+        await stream.CopyToAsync(ms);
+        return new ByteArrayContent(ms.ToArray());
+    }
+
+    private RenderFragment RenderTemplateList(List<TemplateItem> items) => __builder =>
+    {
+        if (items.Count == 0)
+        {
+            <MudText Typo="Typo.body2" Class="mud-secondary-text pa-2">항목이 없습니다.</MudText>
+            return;
+        }
+        <MudList T="TemplateItem" Dense="true" Class="py-0">
+            @foreach (var item in items)
+            {
+                <MudListItem T="TemplateItem" OnClick="@(() => SelectTemplate(item))"
+                             Icon="@Icons.Material.Filled.Description"
+                             Color="@(SelectedTemplate?.Id == item.Id ? Color.Primary : Color.Default)">
+                    <MudStack Spacing="0">
+                        <MudText Typo="Typo.body2"><b>@item.Name</b></MudText>
+                        <MudText Typo="Typo.caption" Class="mud-secondary-text">@item.Category</MudText>
+                    </MudStack>
+                </MudListItem>
+            }
+        </MudList>
+    };
+
+    // ═══════════════════════════════════════
+    //  DTO
+    // ═══════════════════════════════════════
+
+    private sealed class TemplateItem
+    {
+        public Guid Id { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public string Category { get; set; } = string.Empty;
+        public string OriginalFormName { get; set; } = string.Empty;
+        public bool HasPreview { get; set; }
+        public string? PreviewContentType { get; set; }
+        public DateTimeOffset CreatedAt { get; set; }
+        public DateTimeOffset UpdatedAt { get; set; }
+    }
+}

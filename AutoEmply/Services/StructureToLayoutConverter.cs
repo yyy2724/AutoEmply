@@ -3,13 +3,25 @@ using System.Text.RegularExpressions;
 
 namespace AutoEmply.Services;
 
+/// <summary>
+/// FormStructure(논리 구조) → LayoutSpec(픽셀 좌표) 변환기.
+///
+/// Phase 1에서 Claude가 비율 기반으로 추출한 논리 구조를,
+/// Phase 2에서 Delphi DFM에 쓸 수 있는 픽셀 좌표 LayoutSpec으로 변환한다.
+///
+/// 변환 원리:
+///   - 캔버스 너비 774px (좌우 여백 10px씩 제외)
+///   - 열 너비 = 비율(fraction) × 캔버스 너비
+///   - 행 높이 = HeightHint에 따른 고정 값 (standard=20, compact=14, tall=30)
+///   - Z-Order: Rect(배경) → Line(테두리) → Text(라벨) 순으로 배치
+/// </summary>
 public sealed class StructureToLayoutConverter
 {
-    private const int CanvasWidth = 794;
+    // ── 캔버스 상수 ──
     private const int CanvasLeft = 10;
-    private const int CanvasRight = 784;
-    private const int ContentWidth = 774; // CanvasRight - CanvasLeft
+    private const int ContentWidth = 774;
 
+    // ── 크기 상수 ──
     private const int StandardRowHeight = 20;
     private const int CompactRowHeight = 14;
     private const int TallRowHeight = 30;
@@ -19,59 +31,58 @@ public sealed class StructureToLayoutConverter
     private const int CellPaddingTop = 3;
     private const int SectionGap = 2;
 
+    // ── 스타일 상수 ──
     private const string HeaderBgColor = "#D8E4F0";
     private const string BorderColor = "#000000";
-    private static readonly Regex InternalComponentNameRegex = new("^(Q(?:lb|sp|sh|img)\\d*_[A-Za-z0-9_]+)$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    private static readonly Regex InternalNameRegex = new("^(Q(?:lb|sp|sh|img)\\d*_[A-Za-z0-9_]+)$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex FieldCodeRegex = new("([A-Za-z]{2,4}\\d{2,4})", RegexOptions.Compiled);
+
+    // ═══════════════════════════════════════════
+    //  공개 API
+    // ═══════════════════════════════════════════
 
     public LayoutSpec Convert(FormStructure structure)
     {
         var items = new List<LayoutItem>();
         var currentY = 6;
 
-        // Title
+        // 제목
         if (!string.IsNullOrWhiteSpace(structure.Title))
         {
-            items.Add(MakeLabel(
-                structure.Title,
-                left: CanvasLeft + ContentWidth / 4,
-                top: currentY,
-                width: ContentWidth / 2,
-                height: TitleHeight,
-                fontSize: structure.TitleFontSize,
-                bold: true,
-                align: "Center",
-                name: "Qlb3_TITLE"));
+            items.Add(MakeLabel(structure.Title,
+                CanvasLeft + ContentWidth / 4, currentY, ContentWidth / 2, TitleHeight,
+                structure.TitleFontSize, bold: true, align: "Center", name: "Qlb3_TITLE"));
             currentY += TitleHeight + 6;
         }
 
-        // Sections
+        // 섹션들
         foreach (var section in structure.Sections)
         {
             currentY = RenderSection(section, items, currentY);
             currentY += SectionGap;
         }
 
-        // Footer
+        // 푸터
         if (structure.Footer is { Count: > 0 })
         {
             currentY += 4;
-            currentY = RenderFooter(structure.Footer, items, currentY);
+            RenderFooter(structure.Footer, items, currentY);
         }
 
         return new LayoutSpec { Items = items };
     }
 
-    private int RenderSection(FormSection section, List<LayoutItem> items, int startY)
-    {
-        var sectionType = (section.SectionType ?? "table").ToLowerInvariant();
-        return sectionType switch
+    // ═══════════════════════════════════════════
+    //  섹션 렌더링
+    // ═══════════════════════════════════════════
+
+    private int RenderSection(FormSection section, List<LayoutItem> items, int startY) =>
+        (section.SectionType ?? "table").ToLowerInvariant() switch
         {
             "table" => RenderTableSection(section, items, startY),
-            "freeform" or "keyvalue" => RenderFreeformSection(section, items, startY),
             _ => RenderFreeformSection(section, items, startY)
         };
-    }
 
     private int RenderTableSection(FormSection section, List<LayoutItem> items, int startY)
     {
@@ -79,244 +90,148 @@ public sealed class StructureToLayoutConverter
         if (table is null || table.Columns.Count == 0 || table.Rows.Count == 0)
             return startY;
 
-        // Calculate table boundaries
-        int tableLeft, tableWidth;
-        if (table.FullWidth)
-        {
-            tableLeft = CanvasLeft;
-            tableWidth = ContentWidth;
-        }
-        else
-        {
-            tableLeft = CanvasLeft + (int)Math.Round(table.LeftFraction * ContentWidth);
-            tableWidth = (int)Math.Round(table.WidthFraction * ContentWidth);
-        }
+        // 테이블 경계 계산
+        var (tableLeft, tableWidth) = table.FullWidth
+            ? (CanvasLeft, ContentWidth)
+            : (CanvasLeft + (int)Math.Round(table.LeftFraction * ContentWidth),
+               (int)Math.Round(table.WidthFraction * ContentWidth));
 
-        var tableRight = tableLeft + tableWidth;
+        var colBounds = CalculateColumnBoundaries(table.Columns, tableLeft, tableWidth);
+        var rowYs = CalculateRowYPositions(table.Rows, startY);
+        var totalHeight = rowYs[^1] - startY;
 
-        // Calculate column boundaries from fractions
-        var colBoundaries = CalculateColumnBoundaries(table.Columns, tableLeft, tableWidth);
+        // 1. 배경 사각형 (Z-Order 최하위)
+        RenderBackgrounds(table, items, colBounds, rowYs, tableLeft, tableWidth, startY, totalHeight);
 
-        // Calculate row Y positions
-        var rowYPositions = new List<int> { startY };
-        foreach (var row in table.Rows)
-        {
-            rowYPositions.Add(rowYPositions[^1] + ResolveRowHeight(row));
-        }
+        // 2. 테두리 선
+        RenderBorders(table, items, colBounds, rowYs, tableLeft, tableWidth, startY, totalHeight);
 
-        var totalHeight = rowYPositions[^1] - startY;
+        // 3. 셀 텍스트
+        RenderCellTexts(table, items, colBounds, rowYs);
 
-        // --- 1. Background rectangles (rendered first for Z-order) ---
+        return rowYs[^1];
+    }
 
-        // Header column backgrounds (full height of table)
+    // ── 테이블: 배경 ──
+
+    private static void RenderBackgrounds(
+        TableDef table, List<LayoutItem> items, int[] colBounds, List<int> rowYs,
+        int tableLeft, int tableWidth, int startY, int totalHeight)
+    {
+        // 헤더 열 배경 (전체 높이)
         for (var c = 0; c < table.Columns.Count; c++)
         {
             if (table.Columns[c].IsHeaderColumn)
-            {
-                var colLeft = colBoundaries[c] + 1;
-                var colWidth = colBoundaries[c + 1] - colBoundaries[c] - 1;
-                items.Add(MakeRect(colLeft, startY + 1, colWidth, totalHeight - 1, HeaderBgColor));
-            }
+                items.Add(MakeRect(colBounds[c] + 1, startY + 1,
+                    colBounds[c + 1] - colBounds[c] - 1, totalHeight - 1, HeaderBgColor));
         }
 
-        // Header row backgrounds
+        // 헤더 행 / 개별 셀 배경
         for (var r = 0; r < table.Rows.Count; r++)
         {
+            var rowHeight = rowYs[r + 1] - rowYs[r];
             if (table.Rows[r].IsHeaderRow)
             {
-                var rowHeight = rowYPositions[r + 1] - rowYPositions[r];
-                items.Add(MakeRect(tableLeft + 1, rowYPositions[r] + 1, tableWidth - 1, rowHeight - 1, HeaderBgColor));
+                items.Add(MakeRect(tableLeft + 1, rowYs[r] + 1, tableWidth - 1, rowHeight - 1, HeaderBgColor));
+                continue;
             }
-            else
+
+            var colIndex = 0;
+            foreach (var cell in table.Rows[r].Cells)
             {
-                // Individual cell backgrounds
-                var cellColIndex = 0;
-                foreach (var cell in table.Rows[r].Cells)
+                if (cell.HasBackground && colIndex < colBounds.Length - 1)
                 {
-                    if (cell.HasBackground && cellColIndex < colBoundaries.Length - 1)
-                    {
-                        var spanEnd = Math.Min(cellColIndex + Math.Max(1, cell.ColSpan), colBoundaries.Length - 1);
-                        var cellLeft = colBoundaries[cellColIndex] + 1;
-                        var cellWidth = colBoundaries[spanEnd] - colBoundaries[cellColIndex] - 1;
-                        var rowHeight = rowYPositions[r + 1] - rowYPositions[r];
-                        items.Add(MakeRect(cellLeft, rowYPositions[r] + 1, cellWidth, rowHeight - 1, HeaderBgColor));
-                    }
-
-                    cellColIndex += Math.Max(1, cell.ColSpan);
+                    var spanEnd = Math.Min(colIndex + Math.Max(1, cell.ColSpan), colBounds.Length - 1);
+                    items.Add(MakeRect(colBounds[colIndex] + 1, rowYs[r] + 1,
+                        colBounds[spanEnd] - colBounds[colIndex] - 1, rowHeight - 1, HeaderBgColor));
                 }
+                colIndex += Math.Max(1, cell.ColSpan);
             }
         }
+    }
 
-        // --- 2. Border lines ---
+    // ── 테이블: 테두리 ──
 
-        // Horizontal lines: top, bottom, and between rows
+    private static void RenderBorders(
+        TableDef table, List<LayoutItem> items, int[] colBounds, List<int> rowYs,
+        int tableLeft, int tableWidth, int startY, int totalHeight)
+    {
+        // 가로선: 상단, 하단, 행 사이
         for (var r = 0; r <= table.Rows.Count; r++)
-        {
-            items.Add(MakeHLine(tableLeft, rowYPositions[r], tableWidth));
-        }
+            items.Add(MakeHLine(tableLeft, rowYs[r], tableWidth));
 
-        // Vertical lines: left, right, and between columns
+        // 세로선: 좌측, 우측, 열 사이
+        var tableRight = tableLeft + tableWidth;
         for (var c = 0; c <= table.Columns.Count; c++)
         {
-            var x = c < colBoundaries.Length ? colBoundaries[c] : tableRight;
+            var x = c < colBounds.Length ? colBounds[c] : tableRight;
             items.Add(MakeVLine(x, startY, totalHeight));
         }
+    }
 
-        // --- 3. Cell text labels ---
+    // ── 테이블: 셀 텍스트 ──
+
+    private static void RenderCellTexts(
+        TableDef table, List<LayoutItem> items, int[] colBounds, List<int> rowYs)
+    {
         for (var r = 0; r < table.Rows.Count; r++)
         {
-            var row = table.Rows[r];
-            var cellColIndex = 0;
-
-            foreach (var cell in row.Cells)
+            var colIndex = 0;
+            foreach (var cell in table.Rows[r].Cells)
             {
-                if (cellColIndex >= colBoundaries.Length - 1) break;
+                if (colIndex >= colBounds.Length - 1) break;
 
                 var colSpan = Math.Max(1, cell.ColSpan);
-                var spanEnd = Math.Min(cellColIndex + colSpan, colBoundaries.Length - 1);
+                var spanEnd = Math.Min(colIndex + colSpan, colBounds.Length - 1);
+                var cellLeft = colBounds[colIndex] + CellPaddingLeft;
+                var cellTop = rowYs[r] + CellPaddingTop;
+                var cellWidth = colBounds[spanEnd] - colBounds[colIndex] - CellPaddingLeft * 2;
 
-                var cellLeft = colBoundaries[cellColIndex] + CellPaddingLeft;
-                var cellTop = rowYPositions[r] + CellPaddingTop;
-                var cellWidth = colBoundaries[spanEnd] - colBoundaries[cellColIndex] - (CellPaddingLeft * 2);
-                var cellHeight = LabelHeight;
-
-                // Prefer visible OCR text. fieldName is often an internal token (e.g., Qlb3_PTNCO).
                 var displayText = ResolveDisplayText(cell.Text, cell.FieldName);
                 var componentName = ResolveComponentName(displayText, cell.FieldName);
 
                 if (!string.IsNullOrWhiteSpace(displayText))
                 {
-                    items.Add(MakeLabel(
-                        displayText,
-                        cellLeft, cellTop,
-                        Math.Max(1, cellWidth), cellHeight,
+                    items.Add(MakeLabel(displayText, cellLeft, cellTop,
+                        Math.Max(1, cellWidth), LabelHeight,
                         cell.FontSize > 0 ? cell.FontSize : 9,
-                        cell.Bold,
-                        cell.Align,
-                        cell.TextColor,
-                        componentName));
+                        cell.Bold, cell.Align, cell.TextColor, componentName));
                 }
 
-                cellColIndex += colSpan;
+                colIndex += colSpan;
             }
         }
-
-        return rowYPositions[^1];
     }
 
-    private static string ResolveDisplayText(string? text, string? fieldName)
-    {
-        var visibleText = (text ?? string.Empty).Trim();
-        if (!string.IsNullOrWhiteSpace(visibleText))
-        {
-            return visibleText;
-        }
-
-        var field = (fieldName ?? string.Empty).Trim();
-        if (string.IsNullOrWhiteSpace(field))
-        {
-            return string.Empty;
-        }
-
-        // Block internal component identifiers from leaking into visible captions.
-        if (InternalComponentNameRegex.IsMatch(field))
-        {
-            return string.Empty;
-        }
-
-        return field;
-    }
-
-    private static string? ResolveComponentName(string? displayText, string? fieldName)
-    {
-        var field = (fieldName ?? string.Empty).Trim();
-        if (!string.IsNullOrWhiteSpace(field))
-        {
-            var match = FieldCodeRegex.Match(field);
-            if (match.Success)
-            {
-                return $"Qlb3_{match.Groups[1].Value.ToUpperInvariant()}";
-            }
-        }
-
-        var visibleText = (displayText ?? string.Empty).Trim();
-        if (!string.IsNullOrWhiteSpace(visibleText))
-        {
-            var sanitizedFromText = SanitizeIdentifier(visibleText);
-            if (!string.IsNullOrWhiteSpace(sanitizedFromText))
-            {
-                return $"Qlb3_{sanitizedFromText}";
-            }
-        }
-
-        return null;
-    }
-
-    private static string SanitizeIdentifier(string raw)
-    {
-        static bool IsAsciiLetterOrDigit(char ch) =>
-            (ch is >= 'A' and <= 'Z') || (ch is >= 'a' and <= 'z') || (ch is >= '0' and <= '9');
-
-        var chars = raw
-            .Select(ch => IsAsciiLetterOrDigit(ch) ? ch : '_')
-            .ToArray();
-        var candidate = new string(chars).Trim('_');
-        if (string.IsNullOrWhiteSpace(candidate))
-        {
-            return string.Empty;
-        }
-
-        while (candidate.Contains("__", StringComparison.Ordinal))
-        {
-            candidate = candidate.Replace("__", "_", StringComparison.Ordinal);
-        }
-
-        if (!char.IsLetter(candidate[0]) && candidate[0] != '_')
-        {
-            candidate = $"N_{candidate}";
-        }
-
-        return candidate.Length > 40 ? candidate[..40] : candidate;
-    }
+    // ═══════════════════════════════════════════
+    //  자유 배치 / 푸터 렌더링
+    // ═══════════════════════════════════════════
 
     private int RenderFreeformSection(FormSection section, List<LayoutItem> items, int startY)
     {
-        if (section.Elements is null or { Count: 0 })
-            return startY;
+        if (section.Elements is null or { Count: 0 }) return startY;
 
-        // Estimate section height from elements
-        var maxBottomFraction = section.Elements.Max(e => e.YFraction + e.HeightFraction);
-        var sectionHeight = Math.Max(StandardRowHeight, (int)Math.Round(maxBottomFraction * 200));
+        var maxBottom = section.Elements.Max(e => e.YFraction + e.HeightFraction);
+        var sectionHeight = Math.Max(StandardRowHeight, (int)Math.Round(maxBottom * 200));
 
-        foreach (var element in section.Elements)
+        foreach (var el in section.Elements)
         {
-            var left = CanvasLeft + (int)Math.Round(element.XFraction * ContentWidth);
-            var top = startY + (int)Math.Round(element.YFraction * sectionHeight);
-            var width = Math.Max(1, (int)Math.Round(element.WidthFraction * ContentWidth));
-            var height = Math.Max(LabelHeight, (int)Math.Round(element.HeightFraction * sectionHeight));
+            var left = CanvasLeft + (int)Math.Round(el.XFraction * ContentWidth);
+            var top = startY + (int)Math.Round(el.YFraction * sectionHeight);
+            var width = Math.Max(1, (int)Math.Round(el.WidthFraction * ContentWidth));
+            var height = Math.Max(LabelHeight, (int)Math.Round(el.HeightFraction * sectionHeight));
 
-            var elementType = (element.ElementType ?? "text").ToLowerInvariant();
-
-            switch (elementType)
+            switch ((el.ElementType ?? "text").ToLowerInvariant())
             {
                 case "line":
                     items.Add(MakeHLine(left, top, width));
                     break;
                 case "image":
-                    items.Add(new LayoutItem
-                    {
-                        Type = "Image",
-                        Left = left, Top = top, Width = width, Height = height,
-                        Stretch = true
-                    });
+                    items.Add(new LayoutItem { Type = "Image", Left = left, Top = top, Width = width, Height = height, Stretch = true });
                     break;
-                default: // "text", "checkbox"
-                    items.Add(MakeLabel(
-                        element.Text ?? string.Empty,
-                        left, top, width, LabelHeight,
-                        element.FontSize > 0 ? element.FontSize : 9,
-                        element.Bold,
-                        element.Align));
+                default:
+                    items.Add(MakeLabel(el.Text ?? "", left, top, width, LabelHeight,
+                        el.FontSize > 0 ? el.FontSize : 9, el.Bold, el.Align));
                     break;
             }
         }
@@ -324,143 +239,162 @@ public sealed class StructureToLayoutConverter
         return startY + sectionHeight;
     }
 
-    private int RenderFooter(List<FooterElement> footerElements, List<LayoutItem> items, int startY)
+    private static int RenderFooter(List<FooterElement> footerElements, List<LayoutItem> items, int startY)
     {
-        var currentY = startY;
-        foreach (var element in footerElements)
+        var y = startY;
+        foreach (var el in footerElements)
         {
-            var left = CanvasLeft + (int)Math.Round(element.XFraction * ContentWidth);
-            var width = Math.Max(1, (int)Math.Round(element.WidthFraction * ContentWidth));
+            var left = CanvasLeft + (int)Math.Round(el.XFraction * ContentWidth);
+            var width = Math.Max(1, (int)Math.Round(el.WidthFraction * ContentWidth));
 
-            var elementType = (element.ElementType ?? "text").ToLowerInvariant();
-
-            switch (elementType)
+            switch ((el.ElementType ?? "text").ToLowerInvariant())
             {
                 case "image":
-                    items.Add(new LayoutItem
-                    {
-                        Type = "Image",
-                        Left = left, Top = currentY, Width = width, Height = 30,
-                        Stretch = true
-                    });
-                    currentY += 34;
+                    items.Add(new LayoutItem { Type = "Image", Left = left, Top = y, Width = width, Height = 30, Stretch = true });
+                    y += 34;
                     break;
                 case "signature_line":
-                    items.Add(MakeHLine(left, currentY + 10, width));
-                    currentY += 14;
+                    items.Add(MakeHLine(left, y + 10, width));
+                    y += 14;
                     break;
                 default:
-                    items.Add(MakeLabel(
-                        element.Text ?? string.Empty,
-                        left, currentY, width, LabelHeight,
-                        element.FontSize > 0 ? element.FontSize : 9,
-                        element.Bold,
-                        element.Align));
-                    currentY += LabelHeight + 2;
+                    items.Add(MakeLabel(el.Text ?? "", left, y, width, LabelHeight,
+                        el.FontSize > 0 ? el.FontSize : 9, el.Bold, el.Align));
+                    y += LabelHeight + 2;
                     break;
             }
         }
-
-        return currentY;
+        return y;
     }
+
+    // ═══════════════════════════════════════════
+    //  계산 헬퍼
+    // ═══════════════════════════════════════════
 
     private static int[] CalculateColumnBoundaries(List<ColumnDef> columns, int tableLeft, int tableWidth)
     {
-        // Normalize fractions to sum to exactly 1.0
         var totalFraction = columns.Sum(c => c.WidthFraction);
         var normFactor = totalFraction > 0 ? 1.0 / totalFraction : 1.0;
 
-        var boundaries = new int[columns.Count + 1];
-        boundaries[0] = tableLeft;
+        var bounds = new int[columns.Count + 1];
+        bounds[0] = tableLeft;
 
         var accum = 0.0;
         for (var i = 0; i < columns.Count; i++)
         {
             accum += columns[i].WidthFraction * normFactor;
-            boundaries[i + 1] = tableLeft + (int)Math.Round(accum * tableWidth);
+            bounds[i + 1] = tableLeft + (int)Math.Round(accum * tableWidth);
         }
+        bounds[^1] = tableLeft + tableWidth; // 마지막 열은 정확하게
 
-        // Ensure last boundary is exact
-        boundaries[^1] = tableLeft + tableWidth;
-        return boundaries;
+        return bounds;
     }
 
-    private static int ResolveRowHeight(TableRow row)
+    private static List<int> CalculateRowYPositions(List<TableRow> rows, int startY)
     {
-        var hint = (row.HeightHint ?? "standard").Trim().ToLowerInvariant();
-        return hint switch
+        var positions = new List<int> { startY };
+        foreach (var row in rows)
+            positions.Add(positions[^1] + ResolveRowHeight(row));
+        return positions;
+    }
+
+    private static int ResolveRowHeight(TableRow row) =>
+        (row.HeightHint ?? "standard").Trim().ToLowerInvariant() switch
         {
             "standard" => StandardRowHeight,
             "compact" => CompactRowHeight,
             "tall" => TallRowHeight,
-            _ when int.TryParse(hint, out var h) => Math.Clamp(h, 10, 300),
+            _ when int.TryParse(row.HeightHint, out var h) => Math.Clamp(h, 10, 300),
             _ => StandardRowHeight
         };
+
+    // ═══════════════════════════════════════════
+    //  텍스트 / 컴포넌트 이름 결정
+    // ═══════════════════════════════════════════
+
+    /// <summary>셀의 표시 텍스트를 결정. 내부 컴포넌트 식별자는 캡션으로 노출하지 않는다.</summary>
+    private static string ResolveDisplayText(string? text, string? fieldName)
+    {
+        var visible = (text ?? "").Trim();
+        if (!string.IsNullOrWhiteSpace(visible)) return visible;
+
+        var field = (fieldName ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(field)) return string.Empty;
+
+        return InternalNameRegex.IsMatch(field) ? string.Empty : field;
     }
+
+    /// <summary>Delphi 컴포넌트 이름을 fieldName이나 표시 텍스트에서 유추.</summary>
+    private static string? ResolveComponentName(string? displayText, string? fieldName)
+    {
+        var field = (fieldName ?? "").Trim();
+        if (!string.IsNullOrWhiteSpace(field))
+        {
+            var match = FieldCodeRegex.Match(field);
+            if (match.Success)
+                return $"Qlb3_{match.Groups[1].Value.ToUpperInvariant()}";
+        }
+
+        var visible = (displayText ?? "").Trim();
+        if (!string.IsNullOrWhiteSpace(visible))
+        {
+            var sanitized = SanitizeIdentifier(visible);
+            if (!string.IsNullOrWhiteSpace(sanitized))
+                return $"Qlb3_{sanitized}";
+        }
+
+        return null;
+    }
+
+    private static string SanitizeIdentifier(string raw)
+    {
+        var chars = raw
+            .Select(ch => (ch is >= 'A' and <= 'Z') || (ch is >= 'a' and <= 'z') || (ch is >= '0' and <= '9') ? ch : '_')
+            .ToArray();
+        var candidate = new string(chars).Trim('_');
+        if (string.IsNullOrWhiteSpace(candidate)) return string.Empty;
+
+        while (candidate.Contains("__", StringComparison.Ordinal))
+            candidate = candidate.Replace("__", "_", StringComparison.Ordinal);
+        if (!char.IsLetter(candidate[0]) && candidate[0] != '_')
+            candidate = $"N_{candidate}";
+
+        return candidate.Length > 40 ? candidate[..40] : candidate;
+    }
+
+    // ═══════════════════════════════════════════
+    //  LayoutItem 팩토리
+    // ═══════════════════════════════════════════
 
     private static LayoutItem MakeLabel(string caption, int left, int top, int width, int height,
-        int fontSize = 9, bool bold = false, string align = "Left", string? textColor = null, string? name = null)
+        int fontSize = 9, bool bold = false, string align = "Left", string? textColor = null, string? name = null) => new()
     {
-        return new LayoutItem
-        {
-            Name = name,
-            Type = "Text",
-            Left = Math.Max(0, left),
-            Top = Math.Max(0, top),
-            Width = Math.Max(1, width),
-            Height = Math.Max(1, height),
-            Caption = caption,
-            FontSize = Math.Clamp(fontSize, 6, 24),
-            Bold = bold,
-            Align = align,
-            Transparent = true,
-            TextColor = textColor ?? "#000000"
-        };
-    }
+        Name = name, Type = "Text",
+        Left = Math.Max(0, left), Top = Math.Max(0, top),
+        Width = Math.Max(1, width), Height = Math.Max(1, height),
+        Caption = caption, FontSize = Math.Clamp(fontSize, 6, 24),
+        Bold = bold, Align = align, Transparent = true,
+        TextColor = textColor ?? "#000000"
+    };
 
-    private static LayoutItem MakeHLine(int left, int top, int width)
+    private static LayoutItem MakeHLine(int left, int top, int width) => new()
     {
-        return new LayoutItem
-        {
-            Type = "Line",
-            Left = Math.Max(0, left),
-            Top = Math.Max(0, top),
-            Width = Math.Max(1, width),
-            Height = 1,
-            Orientation = "H",
-            Thickness = 1,
-            StrokeColor = BorderColor
-        };
-    }
+        Type = "Line", Left = Math.Max(0, left), Top = Math.Max(0, top),
+        Width = Math.Max(1, width), Height = 1,
+        Orientation = "H", Thickness = 1, StrokeColor = BorderColor
+    };
 
-    private static LayoutItem MakeVLine(int left, int top, int height)
+    private static LayoutItem MakeVLine(int left, int top, int height) => new()
     {
-        return new LayoutItem
-        {
-            Type = "Line",
-            Left = Math.Max(0, left),
-            Top = Math.Max(0, top),
-            Width = 1,
-            Height = Math.Max(1, height),
-            Orientation = "V",
-            Thickness = 1,
-            StrokeColor = BorderColor
-        };
-    }
+        Type = "Line", Left = Math.Max(0, left), Top = Math.Max(0, top),
+        Width = 1, Height = Math.Max(1, height),
+        Orientation = "V", Thickness = 1, StrokeColor = BorderColor
+    };
 
-    private static LayoutItem MakeRect(int left, int top, int width, int height, string fillColor)
+    private static LayoutItem MakeRect(int left, int top, int width, int height, string fillColor) => new()
     {
-        return new LayoutItem
-        {
-            Type = "Rect",
-            Left = Math.Max(0, left),
-            Top = Math.Max(0, top),
-            Width = Math.Max(1, width),
-            Height = Math.Max(1, height),
-            FillColor = fillColor,
-            Filled = true,
-            StrokeColor = fillColor,
-            Thickness = 1
-        };
-    }
+        Type = "Rect", Left = Math.Max(0, left), Top = Math.Max(0, top),
+        Width = Math.Max(1, width), Height = Math.Max(1, height),
+        FillColor = fillColor, Filled = true, StrokeColor = fillColor, Thickness = 1
+    };
 }

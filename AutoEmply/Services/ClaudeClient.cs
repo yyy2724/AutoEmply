@@ -1,4 +1,4 @@
-﻿using System.Net.Http.Headers;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -7,6 +7,15 @@ using AutoEmply.Services.Prompts;
 
 namespace AutoEmply.Services;
 
+/// <summary>
+/// Anthropic Claude API와 통신하는 HTTP 클라이언트.
+///
+/// 두 가지 모드를 지원한다:
+///   1. GenerateLayoutSpecAsync  - 이미지 → LayoutSpec (픽셀 좌표 기반)
+///   2. GenerateFormStructureAsync - 이미지 → FormStructure (비율 기반 논리 구조)
+///
+/// 공통 흐름: API 호출 → 응답 파싱 → 유효성 검증 → 재시도(최대 N회)
+/// </summary>
 public sealed class ClaudeClient(
     HttpClient httpClient,
     IConfiguration configuration,
@@ -19,173 +28,133 @@ public sealed class ClaudeClient(
         NumberHandling = JsonNumberHandling.AllowReadingFromString
     };
 
+    // ═══════════════════════════════════════════
+    //  공개 API
+    // ═══════════════════════════════════════════
+
+    /// <summary>이미지를 분석하여 Delphi QuickReport LayoutSpec을 생성한다.</summary>
     public async Task<ClaudeLayoutResult> GenerateLayoutSpecAsync(
         string formName,
         string mediaType,
         string fileBase64,
         ResolvedPromptPreset preset,
-        CancellationToken cancellationToken,
+        CancellationToken ct,
         bool forceNonEmptyItems = false,
         int emptyObjectRetryLevel = 0)
     {
+        var toolSchema = ClaudeToolSchemas.BuildLayoutSpecTool();
+        var toolName = "emit_layout_spec";
+
+        var parseResult = await CallClaudeWithRetriesAsync(
+            formName, mediaType, fileBase64, preset, toolSchema, toolName, ct,
+            // 파싱: 원시 JSON → LayoutSpec
+            (rawText, attempt) =>
+            {
+                if (IsEmptyObjectPayload(rawText) && emptyObjectRetryLevel < 2)
+                    return ParseOutcome<LayoutSpec>.RecursiveRetry;
+
+                var layoutSpec = TryParseJson<LayoutSpec>(rawText, out var parseError);
+                if (layoutSpec is null)
+                    return ParseOutcome<LayoutSpec>.RetryWith(parseError ?? "Return strict JSON only with top-level items array.");
+
+                var validationErrors = LayoutSpecValidator.Validate(formName, layoutSpec);
+                if (validationErrors.Count > 0)
+                {
+                    if (!forceNonEmptyItems && IsItemsEmptyValidation(validationErrors))
+                        return ParseOutcome<LayoutSpec>.RecursiveRetry;
+
+                    return ParseOutcome<LayoutSpec>.RetryWith(string.Join(" | ", validationErrors.Take(5)));
+                }
+
+                return ParseOutcome<LayoutSpec>.Succeed(layoutSpec);
+            });
+
+        // 빈 응답 재시도가 필요한 경우 → 강화된 제약으로 재귀 호출
+        if (parseResult.NeedsRecursiveRetry)
+        {
+            logger.LogWarning("Claude returned empty/items-empty payload. Retrying with stronger constraints. Level={Level}", emptyObjectRetryLevel + 1);
+            return await GenerateLayoutSpecAsync(
+                formName, mediaType, fileBase64, preset, ct,
+                forceNonEmptyItems: true,
+                emptyObjectRetryLevel: emptyObjectRetryLevel + 1);
+        }
+
+        if (!parseResult.Success)
+            return ClaudeLayoutResult.Fail(parseResult.StatusCode, parseResult.Error!, parseResult.Details);
+
+        return ClaudeLayoutResult.Ok(parseResult.Value!);
+    }
+
+    /// <summary>이미지를 분석하여 논리적 FormStructure를 추출한다 (Phase 1).</summary>
+    public async Task<ClaudeFormStructureResult> GenerateFormStructureAsync(
+        string formName,
+        string mediaType,
+        string fileBase64,
+        ResolvedPromptPreset preset,
+        CancellationToken ct)
+    {
+        var toolSchema = ClaudeToolSchemas.BuildFormStructureTool();
+        var toolName = "emit_form_structure";
+
+        var parseResult = await CallClaudeWithRetriesAsync(
+            formName, mediaType, fileBase64, preset, toolSchema, toolName, ct,
+            (rawText, _) =>
+            {
+                var structure = TryParseJson<FormStructure>(rawText, out var parseError);
+                if (structure is null)
+                    return ParseOutcome<FormStructure>.RetryWith(parseError ?? "Return valid FormStructure JSON.");
+
+                var validationErrors = FormStructureValidator.Validate(structure);
+                if (validationErrors.Count > 0)
+                    return ParseOutcome<FormStructure>.RetryWith(string.Join(" | ", validationErrors.Take(5)));
+
+                return ParseOutcome<FormStructure>.Succeed(structure);
+            });
+
+        if (!parseResult.Success)
+            return ClaudeFormStructureResult.Fail(parseResult.StatusCode, parseResult.Error!, parseResult.Details);
+
+        return ClaudeFormStructureResult.Ok(parseResult.Value!);
+    }
+
+    // ═══════════════════════════════════════════
+    //  핵심 재시도 루프 (두 모드가 공유)
+    // ═══════════════════════════════════════════
+
+    /// <summary>
+    /// Claude API 호출 → 응답 파싱 → 실패 시 재시도를 관리하는 공통 루프.
+    /// parseAndValidate 콜백으로 모드별 파싱/검증 로직을 주입받는다.
+    /// </summary>
+    private async Task<ParseOutcome<T>> CallClaudeWithRetriesAsync<T>(
+        string formName,
+        string mediaType,
+        string fileBase64,
+        ResolvedPromptPreset preset,
+        object toolSchema,
+        string toolName,
+        CancellationToken ct,
+        Func<string, int, ParseOutcome<T>> parseAndValidate)
+    {
         var apiKey = Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY");
         if (string.IsNullOrWhiteSpace(apiKey))
-        {
-            return ClaudeLayoutResult.Fail(400, "API 키 없음");
-        }
+            return ParseOutcome<T>.FailWith(400, "API 키 없음");
 
         var endpoint = configuration["Anthropic:ApiUrl"] ?? "https://api.anthropic.com/v1/messages";
-        var model = preset.Model;
-        var maxRetryAttempts = Math.Max(1, configuration.GetValue<int?>("Anthropic:MaxRetryAttempts") ?? 3);
-        logger.LogInformation("Claude request configuration. Model={Model}, Endpoint={Endpoint}, MaxRetryAttempts={MaxRetryAttempts}", model, endpoint, maxRetryAttempts);
+        var maxRetries = Math.Max(1, configuration.GetValue<int?>("Anthropic:MaxRetryAttempts") ?? 3);
 
-        _ = forceNonEmptyItems;
-        _ = emptyObjectRetryLevel;
-        var systemPrompt = preset.SystemPrompt;
+        logger.LogInformation("Claude request. Model={Model}, Endpoint={Endpoint}, MaxRetries={Max}",
+            preset.Model, endpoint, maxRetries);
+
         var userPrompt = RenderUserPromptTemplate(preset.UserPromptTemplate, formName);
+        var visualBlock = BuildVisualBlock(mediaType, fileBase64);
 
-        object visualBlock = mediaType.Equals("application/pdf", StringComparison.OrdinalIgnoreCase)
-            ? new
-            {
-                type = "document",
-                source = new
-                {
-                    type = "base64",
-                    media_type = mediaType,
-                    data = fileBase64
-                }
-            }
-            : new
-            {
-                type = "image",
-                source = new
-                {
-                    type = "base64",
-                    media_type = mediaType,
-                    data = fileBase64
-                }
-            };
+        ParseOutcome<T>? lastFailure = null;
 
-        static string BuildValidationGuidance(IReadOnlyCollection<string> errors)
+        for (var attempt = 1; attempt <= maxRetries; attempt++)
         {
-            return string.Join(" | ", errors.Take(5));
-        }
+            // ── 1. HTTP 요청 ──
+            var payload = BuildPayload(preset, toolSchema, toolName, userPrompt, visualBlock);
 
-        object BuildPayload(string qualityGuidance)
-        {
-            _ = qualityGuidance;
-
-            return new
-            {
-                model,
-                max_tokens = preset.MaxTokens,
-                temperature = preset.Temperature,
-                system = systemPrompt,
-                tools = new object[]
-                {
-                    new
-                    {
-                        name = "emit_layout_spec",
-                        description = "Return only LayoutSpec JSON payload for Delphi QuickReport, preserving source layout detail, proportions, and colors.",
-                        input_schema = new
-                        {
-                            type = "object",
-                            properties = new
-                            {
-                                items = new
-                                {
-                                    type = "array",
-                                    items = new
-                                    {
-                                        type = "object",
-                                        properties = new
-                                        {
-                                            name = new { type = "string" },
-                                            type = new { type = "string", @enum = new[] { "Text", "Line", "Rect", "Image" } },
-                                            left = new { type = "integer" },
-                                            top = new { type = "integer" },
-                                            width = new { type = "integer" },
-                                            height = new { type = "integer" },
-                                            caption = new { type = "string" },
-                                            align = new { type = "string", @enum = new[] { "Left", "Center", "Right" } },
-                                            fontSize = new { type = "integer" },
-                                            bold = new { type = "boolean" },
-                                            transparent = new { type = "boolean" },
-                                            textColor = new { type = "string" },
-                                            orientation = new { type = "string", @enum = new[] { "H", "V" } },
-                                            thickness = new { type = "integer" },
-                                            strokeColor = new { type = "string" },
-                                            fillColor = new { type = "string" },
-                                            filled = new { type = "boolean" },
-                                            stretch = new { type = "boolean" }
-                                        },
-                                        required = new[] { "type", "left", "top", "width", "height" },
-                                        additionalProperties = false
-                                    }
-                                },
-                                pas = new
-                                {
-                                    type = "object",
-                                    properties = new
-                                    {
-                                        uses = new
-                                        {
-                                            type = "array",
-                                            items = new { type = "string" }
-                                        },
-                                        methods = new
-                                        {
-                                            type = "array",
-                                            items = new
-                                            {
-                                                type = "object",
-                                                properties = new
-                                                {
-                                                    declaration = new { type = "string" },
-                                                    body = new
-                                                    {
-                                                        type = "array",
-                                                        items = new { type = "string" }
-                                                    }
-                                                },
-                                                required = new[] { "declaration", "body" },
-                                                additionalProperties = false
-                                            }
-                                        }
-                                    },
-                                    additionalProperties = false
-                                }
-                            },
-                            required = new[] { "items" },
-                            additionalProperties = false
-                        }
-                    }
-                },
-                tool_choice = new
-                {
-                    type = "tool",
-                    name = "emit_layout_spec"
-                },
-                messages = new object[]
-                {
-                    new
-                    {
-                        role = "user",
-                        content = new object[]
-                        {
-                            new { type = "text", text = userPrompt },
-                            visualBlock
-                        }
-                    }
-                }
-            };
-        }
-
-        ClaudeLayoutResult? lastFailure = null;
-        var retryQualityGuidance = string.Empty;
-        for (var attempt = 1; attempt <= maxRetryAttempts; attempt++)
-        {
-            var payload = BuildPayload(retryQualityGuidance);
             using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
             request.Headers.Add("x-api-key", apiKey);
             request.Headers.Add("anthropic-version", "2023-06-01");
@@ -196,145 +165,137 @@ public sealed class ClaudeClient(
             string body;
             try
             {
-                response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
-                body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                response = await httpClient.SendAsync(request, ct).ConfigureAwait(false);
+                body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             }
-            catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+            catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
             {
-                logger.LogError(ex, "Claude request timed out. Attempt={Attempt}/{MaxRetryAttempts}", attempt, maxRetryAttempts);
-                return ClaudeLayoutResult.Fail(504, "Claude 요청 시간 초과", ["Anthropic API timeout. Increase Anthropic:RequestTimeoutSeconds or lower MaxTokens."]);
+                logger.LogError(ex, "Claude timeout. Attempt={Attempt}/{Max}", attempt, maxRetries);
+                return ParseOutcome<T>.FailWith(504, "Claude 요청 시간 초과",
+                    ["Anthropic API timeout. Increase Anthropic:RequestTimeoutSeconds or lower MaxTokens."]);
             }
-            catch (OperationCanceledException ex)
+            catch (OperationCanceledException)
             {
-                logger.LogWarning(ex, "Claude request canceled by timeout token. Attempt={Attempt}/{MaxRetryAttempts}", attempt, maxRetryAttempts);
-                return ClaudeLayoutResult.Fail(504, "Claude 요청 시간 초과", ["Anthropic API request was canceled by server timeout token."]);
+                return ParseOutcome<T>.FailWith(504, "Claude 요청 취소됨");
             }
-            catch (Exception ex) when (IsTransientNetworkException(ex))
+            catch (Exception ex) when (ex is HttpRequestException or IOException)
             {
-                logger.LogWarning(ex, "Transient Claude network failure. Attempt={Attempt}/{MaxRetryAttempts}", attempt, maxRetryAttempts);
-                if (attempt < maxRetryAttempts)
+                logger.LogWarning(ex, "Claude network failure. Attempt={Attempt}/{Max}", attempt, maxRetries);
+                if (attempt < maxRetries)
                 {
-                    var delayMs = (int)Math.Pow(2, attempt - 1) * 1000;
-                    await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
+                    await ExponentialBackoffAsync(attempt, ct);
                     continue;
                 }
-
-                return ClaudeLayoutResult.Fail(503, "Claude 네트워크 오류", ["Transient network error while calling Anthropic API."]);
+                return ParseOutcome<T>.FailWith(503, "Claude 네트워크 오류");
             }
 
+            // ── 2. 응답 처리 ──
             using (response)
             {
-            using var responseDoc = TryParseJson(body);
-            var requestId = GetRequestId(response, responseDoc);
-            aiModelState.Update(GetResponseModel(responseDoc));
+                using var responseDoc = TryParseJsonDocument(body);
+                var requestId = ExtractRequestId(response, responseDoc);
+                aiModelState.Update(ExtractResponseModel(responseDoc));
 
-            if (!response.IsSuccessStatusCode)
-            {
-                logger.LogError("Claude API failed. Attempt={Attempt}/{MaxAttempts}, Status={StatusCode}, RequestId={RequestId}, Body={Body}",
-                    attempt, maxRetryAttempts, (int)response.StatusCode, requestId, body);
+                // 2a. HTTP 실패
+                if (!response.IsSuccessStatusCode)
+                {
+                    var statusCode = (int)response.StatusCode;
+                    logger.LogError("Claude API failed. Attempt={Attempt}/{Max}, Status={Status}, RequestId={Id}",
+                        attempt, maxRetries, statusCode, requestId);
 
-                var externalMessage = TryExtractClaudeErrorMessage(responseDoc) ?? "Claude API request failed.";
-                var details = new List<string>
-                {
-                    $"ClaudeStatus={(int)response.StatusCode}",
-                    externalMessage
-                };
-                if (!string.IsNullOrWhiteSpace(requestId))
-                {
-                    details.Add($"RequestId={requestId}");
+                    var msg = ExtractClaudeErrorMessage(responseDoc) ?? "Claude API request failed.";
+                    lastFailure = ParseOutcome<T>.FailWith(statusCode, "레이아웃 생성 실패", [$"ClaudeStatus={statusCode}", msg]);
+
+                    if (attempt < maxRetries && IsTransientStatusCode(statusCode))
+                    {
+                        await ExponentialBackoffAsync(attempt, ct);
+                        continue;
+                    }
+                    return lastFailure;
                 }
 
-                lastFailure = ClaudeLayoutResult.Fail((int)response.StatusCode, "레이아웃 생성 실패", details);
-
-                if (attempt < maxRetryAttempts && IsTransientStatusCode((int)response.StatusCode))
+                // 2b. 모델 텍스트 추출
+                if (!TryExtractModelOutput(responseDoc, out var rawText))
                 {
-                    var delayMs = (int)Math.Pow(2, attempt - 1) * 1000;
-                    logger.LogWarning("Transient Claude failure. Retrying after {DelayMs}ms. Attempt={Attempt}/{MaxAttempts}", delayMs, attempt, maxRetryAttempts);
-                    await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
+                    logger.LogError("Claude response parsing failed. RequestId={Id}, Body={Body}", requestId, body);
+                    return ParseOutcome<T>.FailWith(400, "JSON 파싱 실패(모델 응답이 JSON이 아님)");
+                }
+
+                logger.LogInformation("Claude output preview. RequestId={Id}, Preview={Preview}",
+                    requestId, Truncate(rawText, 2000));
+
+                // 2c. 모드별 파싱 + 검증
+                var outcome = parseAndValidate(rawText, attempt);
+
+                if (outcome.NeedsRecursiveRetry)
+                    return outcome;
+
+                if (outcome.Success)
+                    return outcome;
+
+                // 파싱 실패 → 재시도
+                if (attempt < maxRetries)
+                {
+                    logger.LogWarning("Claude parse/validation failed. Retrying. Attempt={Attempt}/{Max}, Guidance={G}",
+                        attempt, maxRetries, outcome.RetryGuidance);
                     continue;
                 }
 
-                return lastFailure;
-            }
-
-            if (!TryReadModelText(responseDoc, out var text))
-            {
-                logger.LogError("Claude response parsing failed. RequestId={RequestId}, Body={Body}", requestId, body);
-                return ClaudeLayoutResult.Fail(400, "JSON 파싱 실패(모델 응답이 JSON이 아님)");
-            }
-
-            logger.LogInformation("Claude model raw output preview (max 2000 chars). RequestId={RequestId}, Preview={Preview}",
-                requestId, TruncateForLog(text, 2000));
-
-            if (IsEmptyObjectPayload(text) && emptyObjectRetryLevel < 2)
-            {
-                var nextLevel = emptyObjectRetryLevel + 1;
-                logger.LogWarning("Claude returned empty object payload. Retrying with stronger constraints. Level={NextLevel}", nextLevel);
-                return await GenerateLayoutSpecAsync(
-                    formName,
-                    mediaType,
-                    fileBase64,
-                    preset,
-                    cancellationToken,
-                    forceNonEmptyItems: true,
-                    emptyObjectRetryLevel: nextLevel);
-            }
-
-            var layoutSpec = TryParseLayoutSpec(text, out var parseError);
-            if (layoutSpec is null)
-            {
-                logger.LogError("Claude layout parse failed. RequestId={RequestId}, ParseError={ParseError}, Text={Text}", requestId, parseError, text);
-                if (attempt < maxRetryAttempts)
-                {
-                    retryQualityGuidance = parseError ?? "Return strict JSON only with top-level items array.";
-                    continue;
-                }
-
-                return ClaudeLayoutResult.Fail(400, "JSON 파싱 실패", [parseError ?? "Invalid layout JSON payload."]);
-            }
-
-            var validationErrors = LayoutSpecValidator.Validate(formName, layoutSpec);
-            if (validationErrors.Count > 0)
-            {
-                if (!forceNonEmptyItems && IsItemsEmptyValidationFailure(validationErrors))
-                {
-                    logger.LogWarning("Claude returned empty items. Retrying once with stronger prompt constraint.");
-                    return await GenerateLayoutSpecAsync(
-                        formName,
-                        mediaType,
-                        fileBase64,
-                        preset,
-                        cancellationToken,
-                        forceNonEmptyItems: true,
-                        emptyObjectRetryLevel: emptyObjectRetryLevel);
-                }
-
-                if (attempt < maxRetryAttempts)
-                {
-                    retryQualityGuidance = BuildValidationGuidance(validationErrors);
-                    logger.LogWarning("Claude output failed validation. Retrying with guidance. Attempt={Attempt}/{MaxAttempts}, Guidance={Guidance}",
-                        attempt, maxRetryAttempts, retryQualityGuidance);
-                    continue;
-                }
-
-                logger.LogError("Claude returned invalid layout. RequestId={RequestId}, Errors={Errors}",
-                    requestId, string.Join("; ", validationErrors));
-                return ClaudeLayoutResult.Fail(400, "레이아웃 검증 실패", validationErrors);
-            }
-
-            return ClaudeLayoutResult.Ok(layoutSpec);
+                return ParseOutcome<T>.FailWith(400, outcome.Error ?? "파싱 실패", outcome.Details);
             }
         }
 
-        return lastFailure ?? ClaudeLayoutResult.Fail(500, "레이아웃 생성 실패");
+        return lastFailure ?? ParseOutcome<T>.FailWith(500, "레이아웃 생성 실패");
     }
 
-    private JsonDocument? TryParseJson(string body)
+    // ═══════════════════════════════════════════
+    //  Payload 빌더
+    // ═══════════════════════════════════════════
+
+    private static object BuildPayload(
+        ResolvedPromptPreset preset, object toolSchema, string toolName,
+        string userPrompt, object visualBlock) => new
     {
-        try
+        model = preset.Model,
+        max_tokens = preset.MaxTokens,
+        temperature = preset.Temperature,
+        system = preset.SystemPrompt,
+        tools = new[] { toolSchema },
+        tool_choice = new { type = "tool", name = toolName },
+        messages = new object[]
         {
-            return JsonDocument.Parse(body);
+            new
+            {
+                role = "user",
+                content = new object[]
+                {
+                    new { type = "text", text = userPrompt },
+                    visualBlock
+                }
+            }
         }
+    };
+
+    private static object BuildVisualBlock(string mediaType, string fileBase64)
+    {
+        var blockType = mediaType.Equals("application/pdf", StringComparison.OrdinalIgnoreCase)
+            ? "document"
+            : "image";
+
+        return new
+        {
+            type = blockType,
+            source = new { type = "base64", media_type = mediaType, data = fileBase64 }
+        };
+    }
+
+    // ═══════════════════════════════════════════
+    //  응답 파싱 헬퍼
+    // ═══════════════════════════════════════════
+
+    private JsonDocument? TryParseJsonDocument(string body)
+    {
+        try { return JsonDocument.Parse(body); }
         catch (JsonException ex)
         {
             logger.LogWarning(ex, "Failed to parse response body as JSON");
@@ -342,101 +303,27 @@ public sealed class ClaudeClient(
         }
     }
 
-    private static string? GetRequestId(HttpResponseMessage response, JsonDocument? doc)
-    {
-        if (response.Headers.TryGetValues("request-id", out var reqIds))
-        {
-            return reqIds.FirstOrDefault();
-        }
-
-        if (response.Headers.TryGetValues("x-request-id", out var xReqIds))
-        {
-            return xReqIds.FirstOrDefault();
-        }
-
-        if (doc?.RootElement.TryGetProperty("request_id", out var requestId) == true)
-        {
-            return requestId.GetString();
-        }
-
-        return null;
-    }
-
-    private static string? GetResponseModel(JsonDocument? doc)
-    {
-        if (doc?.RootElement.TryGetProperty("model", out var model) == true)
-        {
-            return model.GetString();
-        }
-
-        return null;
-    }
-
-    private static string? TryExtractClaudeErrorMessage(JsonDocument? doc)
-    {
-        if (doc?.RootElement.ValueKind != JsonValueKind.Object)
-        {
-            return null;
-        }
-
-        if (doc.RootElement.TryGetProperty("error", out var errorElement) &&
-            errorElement.ValueKind == JsonValueKind.Object &&
-            errorElement.TryGetProperty("message", out var messageElement))
-        {
-            return messageElement.GetString();
-        }
-
-        return null;
-    }
-
-    private static bool IsTransientStatusCode(int statusCode) =>
-        statusCode is 429 or 500 or 502 or 503 or 504 or 529;
-
-    private static bool IsTransientNetworkException(Exception ex) =>
-        ex is HttpRequestException or IOException;
-
-    private static bool IsItemsEmptyValidationFailure(IReadOnlyCollection<string> errors) =>
-        errors.Any(x => x.Contains("layoutSpec.items must contain at least one item.", StringComparison.OrdinalIgnoreCase));
-
-    private static string TruncateForLog(string value, int maxLength)
-    {
-        if (string.IsNullOrEmpty(value) || value.Length <= maxLength)
-        {
-            return value;
-        }
-
-        return value[..maxLength];
-    }
-
-    private static bool IsEmptyObjectPayload(string text) =>
-        string.Equals(text.Trim(), "{}", StringComparison.Ordinal);
-
-
-    private static bool TryReadModelText(JsonDocument? doc, out string text)
+    /// <summary>Claude 응답에서 tool_use.input 또는 text 블록의 내용을 추출한다.</summary>
+    private static bool TryExtractModelOutput(JsonDocument? doc, out string text)
     {
         text = string.Empty;
-        
-        if (doc is null)
-        {
-            return false;
-        }
-
+        if (doc is null) return false;
         if (!doc.RootElement.TryGetProperty("content", out var content) || content.ValueKind != JsonValueKind.Array)
-        {
             return false;
-        }
 
         foreach (var block in content.EnumerateArray())
         {
+            // tool_use 블록 우선
             if (block.TryGetProperty("type", out var blockType) &&
                 string.Equals(blockType.GetString(), "tool_use", StringComparison.OrdinalIgnoreCase) &&
-                block.TryGetProperty("input", out var inputElement) &&
-                inputElement.ValueKind == JsonValueKind.Object)
+                block.TryGetProperty("input", out var input) &&
+                input.ValueKind == JsonValueKind.Object)
             {
-                text = inputElement.GetRawText();
+                text = input.GetRawText();
                 return !string.IsNullOrWhiteSpace(text);
             }
 
+            // text 블록 폴백
             if (block.TryGetProperty("type", out var type) &&
                 string.Equals(type.GetString(), "text", StringComparison.OrdinalIgnoreCase) &&
                 block.TryGetProperty("text", out var value))
@@ -449,15 +336,43 @@ public sealed class ClaudeClient(
         return false;
     }
 
-    private static LayoutSpec? TryParseLayoutSpec(string rawText, out string? parseError)
+    private static string? ExtractRequestId(HttpResponseMessage response, JsonDocument? doc)
+    {
+        if (response.Headers.TryGetValues("request-id", out var ids)) return ids.FirstOrDefault();
+        if (response.Headers.TryGetValues("x-request-id", out var xIds)) return xIds.FirstOrDefault();
+        if (doc?.RootElement.TryGetProperty("request_id", out var rid) == true) return rid.GetString();
+        return null;
+    }
+
+    private static string? ExtractResponseModel(JsonDocument? doc) =>
+        doc?.RootElement.TryGetProperty("model", out var m) == true ? m.GetString() : null;
+
+    private static string? ExtractClaudeErrorMessage(JsonDocument? doc)
+    {
+        if (doc?.RootElement.ValueKind != JsonValueKind.Object) return null;
+        if (doc.RootElement.TryGetProperty("error", out var err) &&
+            err.ValueKind == JsonValueKind.Object &&
+            err.TryGetProperty("message", out var msg))
+            return msg.GetString();
+        return null;
+    }
+
+    // ═══════════════════════════════════════════
+    //  JSON 역직렬화
+    // ═══════════════════════════════════════════
+
+    /// <summary>
+    /// 원시 텍스트를 T로 역직렬화한다.
+    /// 첫 시도 실패 시, 텍스트에서 JSON 객체 경계({...})를 추출하여 재시도한다.
+    /// </summary>
+    private static T? TryParseJson<T>(string rawText, out string? parseError) where T : class
     {
         parseError = null;
-        var parsed = Deserialize(rawText, out parseError);
-        if (parsed is not null)
-        {
-            return parsed;
-        }
 
+        var result = Deserialize<T>(rawText, out parseError);
+        if (result is not null) return result;
+
+        // 주변 텍스트 제거 후 재시도
         var first = rawText.IndexOf('{');
         var last = rawText.LastIndexOf('}');
         if (first < 0 || last <= first)
@@ -466,233 +381,69 @@ public sealed class ClaudeClient(
             return null;
         }
 
-        var jsonOnly = rawText[first..(last + 1)];
-        return Deserialize(jsonOnly, out parseError);
+        return Deserialize<T>(rawText[first..(last + 1)], out parseError);
     }
 
-    private static LayoutSpec? Deserialize(string text, out string? parseError)
+    private static T? Deserialize<T>(string text, out string? parseError) where T : class
     {
         parseError = null;
-        try
-        {
-            return JsonSerializer.Deserialize<LayoutSpec>(text, JsonOptions);
-        }
-        catch (JsonException ex)
-        {
-            parseError = $"JSON schema/type mismatch: {ex.Message}";
-            return null;
-        }
-        catch
-        {
-            parseError = "Unknown JSON deserialization error.";
-            return null;
-        }
+        try { return JsonSerializer.Deserialize<T>(text, JsonOptions); }
+        catch (JsonException ex) { parseError = $"JSON schema/type mismatch: {ex.Message}"; return null; }
+        catch { parseError = "Unknown JSON deserialization error."; return null; }
     }
 
-    // ===== Phase 1: Form Structure Extraction =====
+    // ═══════════════════════════════════════════
+    //  유틸리티
+    // ═══════════════════════════════════════════
 
-    public async Task<ClaudeFormStructureResult> GenerateFormStructureAsync(
-        string formName,
-        string mediaType,
-        string fileBase64,
-        ResolvedPromptPreset preset,
-        CancellationToken cancellationToken)
-    {
-        var apiKey = Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY");
-        if (string.IsNullOrWhiteSpace(apiKey))
-        {
-            return ClaudeFormStructureResult.Fail(400, "API 키 없음");
-        }
-
-        var endpoint = configuration["Anthropic:ApiUrl"] ?? "https://api.anthropic.com/v1/messages";
-        var model = preset.Model;
-        var maxRetryAttempts = Math.Max(1, configuration.GetValue<int?>("Anthropic:MaxRetryAttempts") ?? 3);
-        logger.LogInformation("Claude Phase1 request. Model={Model}, Endpoint={Endpoint}", model, endpoint);
-
-        var systemPrompt = preset.SystemPrompt;
-        var userPrompt = RenderUserPromptTemplate(preset.UserPromptTemplate, formName);
-
-        object visualBlock = mediaType.Equals("application/pdf", StringComparison.OrdinalIgnoreCase)
-            ? new { type = "document", source = new { type = "base64", media_type = mediaType, data = fileBase64 } }
-            : (object)new { type = "image", source = new { type = "base64", media_type = mediaType, data = fileBase64 } };
-
-        static string BuildValidationGuidance(IReadOnlyCollection<string> errors)
-        {
-            return string.Join(" | ", errors.Take(5));
-        }
-
-        object BuildPayload(string qualityGuidance)
-        {
-            _ = qualityGuidance;
-
-            return new
-            {
-                model,
-                max_tokens = preset.MaxTokens,
-                temperature = preset.Temperature,
-                system = systemPrompt,
-                tools = new object[] { ClaudeToolSchemas.BuildFormStructureTool() },
-                tool_choice = new { type = "tool", name = "emit_form_structure" },
-                messages = new object[]
-                {
-                    new
-                    {
-                        role = "user",
-                        content = new object[]
-                        {
-                            new { type = "text", text = userPrompt },
-                            visualBlock
-                        }
-                    }
-                }
-            };
-        }
-
-        ClaudeFormStructureResult? lastFailure = null;
-        var retryGuidance = string.Empty;
-
-        for (var attempt = 1; attempt <= maxRetryAttempts; attempt++)
-        {
-            var payload = BuildPayload(retryGuidance);
-            using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
-            request.Headers.Add("x-api-key", apiKey);
-            request.Headers.Add("anthropic-version", "2023-06-01");
-            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            request.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
-
-            HttpResponseMessage response;
-            string body;
-            try
-            {
-                response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
-                body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
-            {
-                logger.LogError(ex, "Claude Phase1 timed out. Attempt={Attempt}/{Max}", attempt, maxRetryAttempts);
-                return ClaudeFormStructureResult.Fail(504, "Claude 요청 시간 초과");
-            }
-            catch (OperationCanceledException)
-            {
-                return ClaudeFormStructureResult.Fail(504, "Claude 요청 취소됨");
-            }
-            catch (Exception ex) when (IsTransientNetworkException(ex))
-            {
-                logger.LogWarning(ex, "Claude Phase1 network failure. Attempt={Attempt}/{Max}", attempt, maxRetryAttempts);
-                if (attempt < maxRetryAttempts)
-                {
-                    await Task.Delay((int)Math.Pow(2, attempt - 1) * 1000, cancellationToken).ConfigureAwait(false);
-                    continue;
-                }
-
-                return ClaudeFormStructureResult.Fail(503, "Claude 네트워크 오류");
-            }
-
-            using (response)
-            {
-                using var responseDoc = TryParseJson(body);
-                var requestId = GetRequestId(response, responseDoc);
-                aiModelState.Update(GetResponseModel(responseDoc));
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    logger.LogError("Claude Phase1 API failed. Status={Status}, RequestId={RequestId}",
-                        (int)response.StatusCode, requestId);
-
-                    var msg = TryExtractClaudeErrorMessage(responseDoc) ?? "Claude API request failed.";
-                    lastFailure = ClaudeFormStructureResult.Fail((int)response.StatusCode, "구조 추출 실패", [msg]);
-
-                    if (attempt < maxRetryAttempts && IsTransientStatusCode((int)response.StatusCode))
-                    {
-                        await Task.Delay((int)Math.Pow(2, attempt - 1) * 1000, cancellationToken).ConfigureAwait(false);
-                        continue;
-                    }
-
-                    return lastFailure;
-                }
-
-                if (!TryReadModelText(responseDoc, out var text))
-                {
-                    logger.LogError("Claude Phase1 response parsing failed. RequestId={RequestId}", requestId);
-                    return ClaudeFormStructureResult.Fail(400, "JSON 파싱 실패(모델 응답이 JSON이 아님)");
-                }
-
-                logger.LogInformation("Claude Phase1 output preview. RequestId={RequestId}, Preview={Preview}",
-                    requestId, TruncateForLog(text, 2000));
-
-                var structure = TryParseFormStructure(text, out var parseError);
-                if (structure is null)
-                {
-                    logger.LogError("Claude Phase1 parse failed. ParseError={Error}", parseError);
-                    if (attempt < maxRetryAttempts)
-                    {
-                        retryGuidance = parseError ?? "Return valid FormStructure JSON.";
-                        continue;
-                    }
-
-                    return ClaudeFormStructureResult.Fail(400, "구조 JSON 파싱 실패", [parseError ?? "Invalid structure JSON."]);
-                }
-
-                var validationErrors = FormStructureValidator.Validate(structure);
-                if (validationErrors.Count > 0)
-                {
-                    if (attempt < maxRetryAttempts)
-                    {
-                        retryGuidance = BuildValidationGuidance(validationErrors);
-                        logger.LogWarning("Claude Phase1 validation failed. Retrying. Guidance={Guidance}", retryGuidance);
-                        continue;
-                    }
-
-                    return ClaudeFormStructureResult.Fail(400, "구조 검증 실패", validationErrors);
-                }
-
-                return ClaudeFormStructureResult.Ok(structure);
-            }
-        }
-
-        return lastFailure ?? ClaudeFormStructureResult.Fail(500, "구조 추출 실패");
-    }
-
-    private static FormStructure? TryParseFormStructure(string rawText, out string? parseError)
-    {
-        parseError = null;
-        try
-        {
-            var result = JsonSerializer.Deserialize<FormStructure>(rawText, JsonOptions);
-            if (result is not null) return result;
-        }
-        catch (JsonException ex)
-        {
-            parseError = $"FormStructure JSON parse error: {ex.Message}";
-        }
-        catch
-        {
-            parseError = "Unknown FormStructure deserialization error.";
-        }
-
-        // Fallback: try to extract JSON from surrounding text
-        var first = rawText.IndexOf('{');
-        var last = rawText.LastIndexOf('}');
-        if (first < 0 || last <= first) return null;
-
-        try
-        {
-            return JsonSerializer.Deserialize<FormStructure>(rawText[first..(last + 1)], JsonOptions);
-        }
-        catch (JsonException ex)
-        {
-            parseError ??= $"FormStructure JSON parse error: {ex.Message}";
-            return null;
-        }
-    }
-
-    private static string RenderUserPromptTemplate(string template, string formName)
-    {
-        var rendered = (template ?? string.Empty)
+    private static string RenderUserPromptTemplate(string template, string formName) =>
+        (template ?? string.Empty)
             .Replace("{{formName}}", formName, StringComparison.Ordinal)
-            .Replace("{formName}", formName, StringComparison.Ordinal);
+            .Replace("{formName}", formName, StringComparison.Ordinal)
+            .Trim();
 
-        return rendered.Trim();
+    private static bool IsTransientStatusCode(int code) =>
+        code is 429 or 500 or 502 or 503 or 504 or 529;
+
+    private static bool IsEmptyObjectPayload(string text) =>
+        string.Equals(text.Trim(), "{}", StringComparison.Ordinal);
+
+    private static bool IsItemsEmptyValidation(IReadOnlyCollection<string> errors) =>
+        errors.Any(e => e.Contains("layoutSpec.items must contain at least one item.", StringComparison.OrdinalIgnoreCase));
+
+    private static string Truncate(string value, int max) =>
+        string.IsNullOrEmpty(value) || value.Length <= max ? value : value[..max];
+
+    private static async Task ExponentialBackoffAsync(int attempt, CancellationToken ct) =>
+        await Task.Delay((int)Math.Pow(2, attempt - 1) * 1000, ct).ConfigureAwait(false);
+
+    // ═══════════════════════════════════════════
+    //  ParseOutcome - 파싱 결과 래퍼
+    // ═══════════════════════════════════════════
+
+    /// <summary>
+    /// CallClaudeWithRetriesAsync의 parseAndValidate 콜백이 반환하는 결과.
+    /// 성공 / 재시도 필요 / 재귀 재시도 필요 / 최종 실패 네 가지 상태를 표현한다.
+    /// </summary>
+    private sealed record ParseOutcome<T>(
+        bool Success,
+        int StatusCode,
+        string? Error,
+        IReadOnlyCollection<string>? Details,
+        T? Value,
+        string? RetryGuidance = null,
+        bool NeedsRecursiveRetry = false)
+    {
+        public static ParseOutcome<T> Succeed(T value) =>
+            new(true, 200, null, null, value);
+
+        public static ParseOutcome<T> FailWith(int statusCode, string error, IReadOnlyCollection<string>? details = null) =>
+            new(false, statusCode, error, details, default);
+
+        public static ParseOutcome<T> RetryWith(string guidance) =>
+            new(false, 0, guidance, null, default, RetryGuidance: guidance);
+
+        public static ParseOutcome<T> RecursiveRetry =>
+            new(false, 0, null, null, default, NeedsRecursiveRetry: true);
     }
 }
-

@@ -2,6 +2,10 @@ using AutoEmply.Models;
 
 namespace AutoEmply.Services;
 
+/// <summary>
+/// Claude AI의 LayoutSpec 생성 결과.
+/// ClaudeClient → ImageGenerationService 사이에서 사용된다.
+/// </summary>
 public sealed record ClaudeLayoutResult(
     bool Success,
     int StatusCode,
@@ -16,6 +20,9 @@ public sealed record ClaudeLayoutResult(
         new(false, statusCode, error, details, null);
 }
 
+/// <summary>
+/// Claude AI의 FormStructure 추출 결과 (Phase 1).
+/// </summary>
 public sealed record ClaudeFormStructureResult(
     bool Success,
     int StatusCode,

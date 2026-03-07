@@ -5,17 +5,31 @@ using AutoEmply.Models;
 
 namespace AutoEmply.Services;
 
+/// <summary>
+/// LayoutSpec → Delphi QuickReport 파일(.dfm + .pas) 생성기.
+///
+/// 처리 흐름:
+///   1. LayoutSpec.Items를 정규화(타입 매핑, 좌표 보정, 중복 제거)
+///   2. DetailBand 크기를 아이템 범위에 맞게 계산
+///   3. DFM(Delphi Form) 텍스트 생성
+///   4. PAS(Pascal Unit) 텍스트 생성
+///   5. ZIP으로 묶어 반환
+/// </summary>
 public sealed class DelphiGenerator
 {
-    private const double Mm = 2.645833333333333;
+    // ── 상수 ──
+    private const double PixelToMm = 2.645833333333333;
     private const int QuickRepWidth = 794;
-    private const int DetailBandLeft = 0;
-    private const int MaxDetailBandWidth = QuickRepWidth;
-    private const int MaxDetailBandHeight = 6000;
-    private const int DetailBandPadding = 2;
+    private const int MaxBandWidth = QuickRepWidth;
+    private const int MaxBandHeight = 6000;
+    private const int BandPadding = 2;
     private const int MinFontSize = 6;
     private const int MaxFontSize = 24;
     private const int MaxPenThickness = 6;
+
+    // ═══════════════════════════════════════════
+    //  공개 API
+    // ═══════════════════════════════════════════
 
     public byte[] GenerateZip(string formName, LayoutSpec layoutSpec)
     {
@@ -24,99 +38,53 @@ public sealed class DelphiGenerator
         var pas = GeneratePas(formName, className, components, layoutSpec.Pas);
 
         using var stream = new MemoryStream();
-        using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, true))
+        using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
         {
-            var dfmEntry = archive.CreateEntry($"{formName}.dfm");
-            using (var writer = new StreamWriter(dfmEntry.Open(), Encoding.ASCII))
-            {
-                writer.Write(dfm);
-            }
-
-            var pasEntry = archive.CreateEntry($"{formName}.pas");
-            using (var writer = new StreamWriter(pasEntry.Open(), Encoding.ASCII))
-            {
-                writer.Write(pas);
-            }
+            WriteEntry(archive, $"{formName}.dfm", dfm);
+            WriteEntry(archive, $"{formName}.pas", pas);
         }
-
         return stream.ToArray();
     }
 
-    public string Enc(string text)
-    {
-        if (string.IsNullOrEmpty(text))
-        {
-            return "''";
-        }
-
-        var result = new StringBuilder();
-        var asciiBuffer = new StringBuilder();
-
-        static bool IsAscii(char ch) => ch is >= ' ' and <= '~';
-
-        foreach (var ch in text)
-        {
-            if (IsAscii(ch))
-            {
-                asciiBuffer.Append(ch == '\'' ? "''" : ch);
-                continue;
-            }
-
-            if (asciiBuffer.Length > 0)
-            {
-                result.Append('\'').Append(asciiBuffer).Append('\'');
-                asciiBuffer.Clear();
-            }
-
-            result.Append('#').Append((int)ch);
-        }
-
-        if (asciiBuffer.Length > 0)
-        {
-            result.Append('\'').Append(asciiBuffer).Append('\'');
-        }
-
-        return result.Length == 0 ? "''" : result.ToString();
-    }
-
-    public string SizeValues(int height, int left, int top, int width)
-    {
-        return $"Size.Values = ({Environment.NewLine}" +
-               $"  {(height * Mm).ToString("F12", CultureInfo.InvariantCulture)}{Environment.NewLine}" +
-               $"  {(left * Mm).ToString("F12", CultureInfo.InvariantCulture)}{Environment.NewLine}" +
-               $"  {(top * Mm).ToString("F12", CultureInfo.InvariantCulture)}{Environment.NewLine}" +
-               $"  {(width * Mm).ToString("F12", CultureInfo.InvariantCulture)})";
-    }
-
-    public string DetailBandSizeValues(int height, int width)
-    {
-        var heightMm = Math.Round(height * Mm, 15, MidpointRounding.AwayFromZero);
-        var widthMm = Math.Round(width * Mm, 15, MidpointRounding.AwayFromZero);
-
-        return $"Size.Values = ({Environment.NewLine}" +
-               $"  {heightMm.ToString("F18", CultureInfo.InvariantCulture)}{Environment.NewLine}" +
-               $"  {widthMm.ToString("F18", CultureInfo.InvariantCulture)})";
-    }
+    // ═══════════════════════════════════════════
+    //  DFM 생성
+    // ═══════════════════════════════════════════
 
     public string GenerateDfm(string formName, string className, LayoutSpec layoutSpec, out List<ComponentRef> components)
     {
-        var sb = new StringBuilder();
-        components = [new ComponentRef("QuickRep1", "TQuickRep"), new ComponentRef("DetailBand1", "TQRBand")];
-        var normalizedItems = NormalizeLayoutItems(layoutSpec.Items);
-        normalizedItems = DeduplicateLayoutItems(normalizedItems);
-        normalizedItems = FitItemsToBandWidth(normalizedItems, MaxDetailBandWidth);
-        var detailBandSize = CalculateDetailBandSize(normalizedItems);
-        normalizedItems = FitItemsToDetailBandBounds(normalizedItems, detailBandSize.Width, detailBandSize.Height);
+        components = [new("QuickRep1", "TQuickRep"), new("DetailBand1", "TQRBand")];
 
+        var items = PrepareItems(layoutSpec.Items);
+        var bandSize = CalculateBandSize(items);
+        items = ClampItemsToBand(items, bandSize.Width, bandSize.Height);
+
+        var sb = new StringBuilder();
+        WriteFormHeader(sb, formName, className);
+        WriteQuickRepHeader(sb);
+        WriteDetailBandHeader(sb, bandSize);
+        WriteComponentItems(sb, items, components);
+        WriteClosingTags(sb);
+
+        return sb.ToString();
+    }
+
+    // ── DFM: 섹션별 출력 ──
+
+    private void WriteFormHeader(StringBuilder sb, string formName, string className)
+    {
         sb.AppendLine($"object {formName}: T{className}");
         sb.AppendLine("  Left = 0");
         sb.AppendLine("  Top = 0");
         sb.AppendLine("  Width = 800");
         sb.AppendLine("  Height = 600");
-        sb.AppendLine($"  Caption = {Enc(formName)}");
+        sb.AppendLine($"  Caption = {EncodeDelphi(formName)}");
         sb.AppendLine("  OldCreateOrder = False");
         sb.AppendLine("  PixelsPerInch = 96");
         sb.AppendLine("  TextHeight = 13");
+    }
+
+    private static void WriteQuickRepHeader(StringBuilder sb)
+    {
         sb.AppendLine("  object QuickRep1: TQuickRep");
         sb.AppendLine("    Left = 0");
         sb.AppendLine("    Top = 0");
@@ -164,433 +132,200 @@ public sealed class DelphiGenerator
         sb.AppendLine("    PrinterSettings.LastPage = 0");
         sb.AppendLine("    PrinterSettings.UseStandardprinter = False");
         sb.AppendLine("    PrinterSettings.UseCustomBinCode = False");
+    }
+
+    private void WriteDetailBandHeader(StringBuilder sb, (int Width, int Height) size)
+    {
         sb.AppendLine("    object DetailBand1: TQRBand");
-        sb.AppendLine($"      Left = {DetailBandLeft}");
+        sb.AppendLine("      Left = 0");
         sb.AppendLine("      Top = 38");
-        sb.AppendLine($"      Width = {detailBandSize.Width}");
-        sb.AppendLine($"      Height = {detailBandSize.Height}");
+        sb.AppendLine($"      Width = {size.Width}");
+        sb.AppendLine($"      Height = {size.Height}");
         sb.AppendLine("      BandType = rbDetail");
-        sb.AppendLine($"      {DetailBandSizeValues(detailBandSize.Height, detailBandSize.Width).Replace(Environment.NewLine, Environment.NewLine + "      ", StringComparison.Ordinal)}");
+        sb.AppendLine($"      {BandSizeValues(size.Height, size.Width).Replace(Environment.NewLine, Environment.NewLine + "      ", StringComparison.Ordinal)}");
+    }
 
-        var labelNo = 0;
-        var shapeNo = 0;
-        var imageNo = 0;
-        var usedComponentNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    private void WriteComponentItems(StringBuilder sb, IReadOnlyList<LayoutItem> items, List<ComponentRef> components)
+    {
+        var counters = new ComponentCounters();
+        var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var item in normalizedItems)
+        foreach (var item in items)
         {
-            var type = item.Type?.Trim() ?? string.Empty;
+            var type = (item.Type ?? string.Empty).Trim();
+
             if (type.Equals("Text", StringComparison.OrdinalIgnoreCase))
-            {
-                labelNo++;
-                var name = BuildComponentName(usedComponentNames, "QRLabel", item.Name, ref labelNo);
-                components.Add(new ComponentRef(name, "TQRLabel"));
-                sb.AppendLine($"      object {name}: TQRLabel");
-                sb.AppendLine($"        Left = {item.Left}");
-                sb.AppendLine($"        Top = {item.Top}");
-                sb.AppendLine($"        Width = {item.Width}");
-                sb.AppendLine($"        Height = {item.Height}");
-                sb.AppendLine($"        Alignment = {MapAlign(item.Align)}");
-                sb.AppendLine($"        Caption = {Enc(item.Caption ?? string.Empty)}");
-                sb.AppendLine("        AutoSize = False");
-                sb.AppendLine($"        Transparent = {ToDelphiBool(item.Transparent ?? false)}");
-                sb.AppendLine("        WordWrap = True");
-                sb.AppendLine("        Font.Charset = DEFAULT_CHARSET");
-                sb.AppendLine($"        Font.Color = {NormalizeDelphiColor(item.TextColor, "clBlack")}");
-                sb.AppendLine("        Font.Name = 'Gulim'");
-                sb.AppendLine($"        Font.Size = {Math.Clamp(item.FontSize.GetValueOrDefault(10), MinFontSize, MaxFontSize)}");
-                sb.AppendLine($"        Font.Style = {(item.Bold ?? false ? "[fsBold]" : "[]")}");
-                sb.AppendLine("        ParentFont = False");
-                sb.AppendLine($"        {SizeValues(item.Height, item.Left, item.Top, item.Width).Replace(Environment.NewLine, Environment.NewLine + "        ", StringComparison.Ordinal)}");
-                sb.AppendLine("      end");
-                continue;
-            }
-
-            if (type.Equals("Line", StringComparison.OrdinalIgnoreCase) || type.Equals("Rect", StringComparison.OrdinalIgnoreCase))
-            {
-                shapeNo++;
-                var name = BuildComponentName(usedComponentNames, "QRShape", item.Name, ref shapeNo);
-                components.Add(new ComponentRef(name, "TQRShape"));
-                sb.AppendLine($"      object {name}: TQRShape");
-                sb.AppendLine($"        Left = {item.Left}");
-                sb.AppendLine($"        Top = {item.Top}");
-                sb.AppendLine($"        Width = {item.Width}");
-                sb.AppendLine($"        Height = {item.Height}");
-                sb.AppendLine($"        Pen.Width = {Math.Clamp(item.Thickness.GetValueOrDefault(1), 1, MaxPenThickness)}");
-                sb.AppendLine($"        Pen.Color = {NormalizeDelphiColor(item.StrokeColor, "clBlack")}");
-                sb.AppendLine($"        Shape = {MapShape(type, item.Orientation)}");
-                if (type.Equals("Rect", StringComparison.OrdinalIgnoreCase))
-                {
-                    var isFilledRect = (item.Filled ?? false) || !string.IsNullOrWhiteSpace(item.FillColor);
-                    if (isFilledRect)
-                    {
-                        sb.AppendLine("        Brush.Style = bsSolid");
-                        sb.AppendLine($"        Brush.Color = {NormalizeDelphiColor(item.FillColor, "clWhite")}");
-                    }
-                    else
-                    {
-                        sb.AppendLine("        Brush.Style = bsClear");
-                    }
-                }
-                sb.AppendLine($"        {SizeValues(item.Height, item.Left, item.Top, item.Width).Replace(Environment.NewLine, Environment.NewLine + "        ", StringComparison.Ordinal)}");
-                sb.AppendLine("      end");
-                continue;
-            }
-
-            if (type.Equals("Image", StringComparison.OrdinalIgnoreCase))
-            {
-                imageNo++;
-                var name = BuildComponentName(usedComponentNames, "QRImage", item.Name, ref imageNo);
-                components.Add(new ComponentRef(name, "TQRImage"));
-                sb.AppendLine($"      object {name}: TQRImage");
-                sb.AppendLine($"        Left = {item.Left}");
-                sb.AppendLine($"        Top = {item.Top}");
-                sb.AppendLine($"        Width = {item.Width}");
-                sb.AppendLine($"        Height = {item.Height}");
-                sb.AppendLine($"        Stretch = {ToDelphiBool(item.Stretch ?? true)}");
-                sb.AppendLine($"        {SizeValues(item.Height, item.Left, item.Top, item.Width).Replace(Environment.NewLine, Environment.NewLine + "        ", StringComparison.Ordinal)}");
-                sb.AppendLine("      end");
-            }
+                WriteLabel(sb, item, components, usedNames, counters);
+            else if (type.Equals("Line", StringComparison.OrdinalIgnoreCase) || type.Equals("Rect", StringComparison.OrdinalIgnoreCase))
+                WriteShape(sb, item, type, components, usedNames, counters);
+            else if (type.Equals("Image", StringComparison.OrdinalIgnoreCase))
+                WriteImage(sb, item, components, usedNames, counters);
         }
-
-        sb.AppendLine("    end");
-        sb.AppendLine("  end");
-        sb.Append("end");
-        return sb.ToString();
     }
 
-    private static (int Width, int Height) CalculateDetailBandSize(IReadOnlyCollection<LayoutItem> items)
+    private void WriteLabel(StringBuilder sb, LayoutItem item, List<ComponentRef> components,
+        HashSet<string> usedNames, ComponentCounters counters)
     {
-        if (items.Count == 0)
-        {
-            return (MaxDetailBandWidth, 1043);
-        }
+        counters.Label++;
+        var name = BuildComponentName(usedNames, "QRLabel", item.Name, ref counters.Label);
+        components.Add(new ComponentRef(name, "TQRLabel"));
 
-        const int minWidth = 64;
-        const int minHeight = 32;
-
-        var maxRight = items.Max(item => Math.Max(0, item.Left) + Math.Max(1, item.Width));
-        var maxBottom = items.Max(item => Math.Max(0, item.Top) + Math.Max(1, item.Height));
-
-        var width = Math.Max(minWidth, Math.Min(MaxDetailBandWidth, maxRight + DetailBandPadding));
-        var height = Math.Max(minHeight, Math.Min(MaxDetailBandHeight, maxBottom + DetailBandPadding));
-        return (width, height);
+        sb.AppendLine($"      object {name}: TQRLabel");
+        sb.AppendLine($"        Left = {item.Left}");
+        sb.AppendLine($"        Top = {item.Top}");
+        sb.AppendLine($"        Width = {item.Width}");
+        sb.AppendLine($"        Height = {item.Height}");
+        sb.AppendLine($"        Alignment = {MapAlignment(item.Align)}");
+        sb.AppendLine($"        Caption = {EncodeDelphi(item.Caption ?? string.Empty)}");
+        sb.AppendLine("        AutoSize = False");
+        sb.AppendLine($"        Transparent = {ToDelphiBool(item.Transparent ?? false)}");
+        sb.AppendLine("        WordWrap = True");
+        sb.AppendLine("        Font.Charset = DEFAULT_CHARSET");
+        sb.AppendLine($"        Font.Color = {ToDelphiColor(item.TextColor, "clBlack")}");
+        sb.AppendLine("        Font.Name = 'Gulim'");
+        sb.AppendLine($"        Font.Size = {Math.Clamp(item.FontSize.GetValueOrDefault(10), MinFontSize, MaxFontSize)}");
+        sb.AppendLine($"        Font.Style = {(item.Bold ?? false ? "[fsBold]" : "[]")}");
+        sb.AppendLine("        ParentFont = False");
+        sb.AppendLine($"        {ItemSizeValues(item).Replace(Environment.NewLine, Environment.NewLine + "        ", StringComparison.Ordinal)}");
+        sb.AppendLine("      end");
     }
 
-    private static IReadOnlyList<LayoutItem> FitItemsToBandWidth(IReadOnlyList<LayoutItem> items, int maxContentRight)
+    private void WriteShape(StringBuilder sb, LayoutItem item, string type, List<ComponentRef> components,
+        HashSet<string> usedNames, ComponentCounters counters)
     {
-        if (items.Count == 0)
-        {
-            return items;
-        }
+        counters.Shape++;
+        var name = BuildComponentName(usedNames, "QRShape", item.Name, ref counters.Shape);
+        components.Add(new ComponentRef(name, "TQRShape"));
 
-        var currentMaxRight = items.Max(item => Math.Max(0, item.Left) + Math.Max(1, item.Width));
-        if (currentMaxRight <= maxContentRight)
-        {
-            return items;
-        }
+        sb.AppendLine($"      object {name}: TQRShape");
+        sb.AppendLine($"        Left = {item.Left}");
+        sb.AppendLine($"        Top = {item.Top}");
+        sb.AppendLine($"        Width = {item.Width}");
+        sb.AppendLine($"        Height = {item.Height}");
+        sb.AppendLine($"        Pen.Width = {Math.Clamp(item.Thickness.GetValueOrDefault(1), 1, MaxPenThickness)}");
+        sb.AppendLine($"        Pen.Color = {ToDelphiColor(item.StrokeColor, "clBlack")}");
+        sb.AppendLine($"        Shape = {MapShape(type, item.Orientation)}");
 
-        var clamped = new List<LayoutItem>(items.Count);
-        foreach (var item in items)
+        if (type.Equals("Rect", StringComparison.OrdinalIgnoreCase))
         {
-            var clone = CloneItem(item);
-            clone.Left = Math.Max(0, clone.Left);
-            clone.Top = Math.Max(0, clone.Top);
-            clone.Width = Math.Max(1, clone.Width);
-            clone.Height = Math.Max(1, clone.Height);
-
-            if (clone.Left > maxContentRight - 1)
+            var isFilled = (item.Filled ?? false) || !string.IsNullOrWhiteSpace(item.FillColor);
+            if (isFilled)
             {
-                clone.Left = Math.Max(0, maxContentRight - 1);
-                clone.Width = 1;
+                sb.AppendLine("        Brush.Style = bsSolid");
+                sb.AppendLine($"        Brush.Color = {ToDelphiColor(item.FillColor, "clWhite")}");
             }
-
-            var right = clone.Left + clone.Width;
-            if (right > maxContentRight)
+            else
             {
-                clone.Width = Math.Max(1, maxContentRight - clone.Left);
+                sb.AppendLine("        Brush.Style = bsClear");
             }
-
-            clamped.Add(clone);
         }
 
-        return clamped;
+        sb.AppendLine($"        {ItemSizeValues(item).Replace(Environment.NewLine, Environment.NewLine + "        ", StringComparison.Ordinal)}");
+        sb.AppendLine("      end");
     }
 
-    private static IReadOnlyList<LayoutItem> FitItemsToDetailBandBounds(IReadOnlyList<LayoutItem> items, int bandWidth, int bandHeight)
+    private void WriteImage(StringBuilder sb, LayoutItem item, List<ComponentRef> components,
+        HashSet<string> usedNames, ComponentCounters counters)
     {
-        if (items.Count == 0)
-        {
-            return items;
-        }
+        counters.Image++;
+        var name = BuildComponentName(usedNames, "QRImage", item.Name, ref counters.Image);
+        components.Add(new ComponentRef(name, "TQRImage"));
 
-        var safeRight = Math.Max(1, bandWidth);
-        var safeBottom = Math.Max(1, bandHeight);
-        var clamped = new List<LayoutItem>(items.Count);
-        foreach (var item in items)
-        {
-            var clone = CloneItem(item);
-            clone.Left = Math.Clamp(clone.Left, 0, safeRight - 1);
-            clone.Top = Math.Clamp(clone.Top, 0, safeBottom - 1);
-            clone.Width = Math.Max(1, clone.Width);
-            clone.Height = Math.Max(1, clone.Height);
-
-            var right = clone.Left + clone.Width;
-            var bottom = clone.Top + clone.Height;
-            if (right > safeRight)
-            {
-                clone.Width = Math.Max(1, safeRight - clone.Left);
-            }
-
-            if (bottom > safeBottom)
-            {
-                clone.Height = Math.Max(1, safeBottom - clone.Top);
-            }
-
-            clamped.Add(clone);
-        }
-
-        return clamped;
+        sb.AppendLine($"      object {name}: TQRImage");
+        sb.AppendLine($"        Left = {item.Left}");
+        sb.AppendLine($"        Top = {item.Top}");
+        sb.AppendLine($"        Width = {item.Width}");
+        sb.AppendLine($"        Height = {item.Height}");
+        sb.AppendLine($"        Stretch = {ToDelphiBool(item.Stretch ?? true)}");
+        sb.AppendLine($"        {ItemSizeValues(item).Replace(Environment.NewLine, Environment.NewLine + "        ", StringComparison.Ordinal)}");
+        sb.AppendLine("      end");
     }
+
+    private static void WriteClosingTags(StringBuilder sb)
+    {
+        sb.AppendLine("    end");  // DetailBand1
+        sb.AppendLine("  end");    // QuickRep1
+        sb.Append("end");          // Form
+    }
+
+    // ═══════════════════════════════════════════
+    //  PAS 생성
+    // ═══════════════════════════════════════════
 
     public string GeneratePas(string formName, string className, IReadOnlyCollection<ComponentRef> components, PasSpec? pasSpec)
     {
-        var baseUnits = new[]
-        {
-            "Windows",
-            "Messages",
-            "SysUtils",
-            "Variants",
-            "Classes",
-            "Graphics",
-            "Controls",
-            "Forms",
-            "Dialogs",
-            "QuickRpt",
-            "QRCtrls",
-            "ExtCtrls"
-        };
+        var baseUnits = new[] { "Windows", "Messages", "SysUtils", "Variants", "Classes", "Graphics", "Controls", "Forms", "Dialogs", "QuickRpt", "QRCtrls", "ExtCtrls" };
         var extraUnits = NormalizeUnitNames(pasSpec?.Uses);
-        var methodSpecs = NormalizeMethods(pasSpec?.Methods);
+        var methods = NormalizeMethods(pasSpec?.Methods);
 
         var sb = new StringBuilder();
+
+        // unit 선언
         sb.AppendLine($"unit {formName};");
         sb.AppendLine();
+
+        // interface 섹션
         sb.AppendLine("interface");
         sb.AppendLine();
         AppendUsesClause(sb, baseUnits, extraUnits);
         sb.AppendLine();
         sb.AppendLine("type");
         sb.AppendLine($"  T{className} = class(TForm)");
-        foreach (var component in components)
-        {
-            sb.AppendLine($"    {component.Name}: {component.Type};");
-        }
-
+        foreach (var c in components)
+            sb.AppendLine($"    {c.Name}: {c.Type};");
         sb.AppendLine("  private");
         sb.AppendLine("  public");
-        foreach (var method in methodSpecs)
-        {
-            sb.AppendLine($"    {method.Declaration}");
-        }
-
+        foreach (var m in methods)
+            sb.AppendLine($"    {m.Declaration}");
         sb.AppendLine("  end;");
         sb.AppendLine();
+
+        // var 섹션
         sb.AppendLine("var");
         sb.AppendLine($"  {formName}: T{className};");
         sb.AppendLine();
+
+        // implementation 섹션
         sb.AppendLine("implementation");
         sb.AppendLine();
         sb.AppendLine("{$R *.dfm}");
         sb.AppendLine();
-        foreach (var method in methodSpecs)
+        foreach (var m in methods)
         {
-            sb.AppendLine(BuildImplementationDeclaration(method.Declaration, className));
+            sb.AppendLine(BuildImplementationDeclaration(m.Declaration, className));
             sb.AppendLine("begin");
-            foreach (var line in method.Body)
-            {
-                if (string.IsNullOrWhiteSpace(line))
-                {
-                    sb.AppendLine();
-                    continue;
-                }
-
-                sb.AppendLine($"  {line.Trim()}");
-            }
-
+            foreach (var line in m.Body)
+                sb.AppendLine(string.IsNullOrWhiteSpace(line) ? string.Empty : $"  {line.Trim()}");
             sb.AppendLine("end;");
             sb.AppendLine();
         }
-
         sb.Append("end.");
+
         return sb.ToString();
     }
 
-    private static void AppendUsesClause(StringBuilder sb, IEnumerable<string> baseUnits, IEnumerable<string> extraUnits)
-    {
-        var allUnits = baseUnits
-            .Concat(extraUnits)
-            .Where(static x => !string.IsNullOrWhiteSpace(x))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
+    // ═══════════════════════════════════════════
+    //  아이템 전처리 파이프라인
+    // ═══════════════════════════════════════════
 
-        sb.AppendLine("uses");
-        for (var i = 0; i < allUnits.Count; i++)
-        {
-            var suffix = i == allUnits.Count - 1 ? ";" : ",";
-            sb.AppendLine($"  {allUnits[i]}{suffix}");
-        }
+    private IReadOnlyList<LayoutItem> PrepareItems(IReadOnlyCollection<LayoutItem> sourceItems)
+    {
+        var items = NormalizeItems(sourceItems);
+        items = DeduplicateItems(items);
+        items = ClampItemsToWidth(items, MaxBandWidth);
+        return items;
     }
 
-    private static IReadOnlyList<string> NormalizeUnitNames(IReadOnlyCollection<string>? units)
+    /// <summary>타입 매핑, 좌표 보정, 정렬.</summary>
+    private static IReadOnlyList<LayoutItem> NormalizeItems(IReadOnlyCollection<LayoutItem> sourceItems)
     {
-        if (units is null || units.Count == 0)
-        {
-            return [];
-        }
-
-        var result = new List<string>();
-        foreach (var rawUnit in units)
-        {
-            var unitName = (rawUnit ?? string.Empty).Trim();
-            if (string.IsNullOrWhiteSpace(unitName))
-            {
-                continue;
-            }
-
-            if (unitName.EndsWith(";", StringComparison.Ordinal))
-            {
-                unitName = unitName[..^1].Trim();
-            }
-
-            if (string.IsNullOrWhiteSpace(unitName))
-            {
-                continue;
-            }
-
-            result.Add(unitName);
-        }
-
-        return result;
-    }
-
-    private static IReadOnlyList<(string Declaration, IReadOnlyList<string> Body)> NormalizeMethods(IReadOnlyCollection<PasMethodSpec>? methods)
-    {
-        if (methods is null || methods.Count == 0)
-        {
-            return [];
-        }
-
-        var result = new List<(string Declaration, IReadOnlyList<string> Body)>();
-        foreach (var method in methods)
-        {
-            var declaration = EnsureDeclarationSuffix(method.Declaration);
-            if (string.IsNullOrWhiteSpace(declaration))
-            {
-                continue;
-            }
-
-            var bodyLines = (method.Body ?? [])
-                .Select(static x => x ?? string.Empty)
-                .Select(static x => x.Trim())
-                .Where(static x =>
-                    !string.Equals(x, "begin", StringComparison.OrdinalIgnoreCase) &&
-                    !string.Equals(x, "end;", StringComparison.OrdinalIgnoreCase) &&
-                    !string.Equals(x, "end", StringComparison.OrdinalIgnoreCase))
-                .ToList();
-
-            if (bodyLines.Count == 0)
-            {
-                bodyLines.Add("// TODO");
-            }
-
-            result.Add((declaration, bodyLines));
-        }
-
-        return result;
-    }
-
-    private static string EnsureDeclarationSuffix(string declaration)
-    {
-        var clean = (declaration ?? string.Empty).Trim();
-        if (string.IsNullOrWhiteSpace(clean))
-        {
-            return string.Empty;
-        }
-
-        if (!clean.EndsWith(";", StringComparison.Ordinal))
-        {
-            clean += ";";
-        }
-
-        return clean;
-    }
-
-    private static string BuildImplementationDeclaration(string declaration, string className)
-    {
-        var clean = EnsureDeclarationSuffix(declaration);
-        if (string.IsNullOrWhiteSpace(clean))
-        {
-            return string.Empty;
-        }
-
-        var lowered = clean.ToLowerInvariant();
-        var classPrefix = $"T{className}.";
-        if (clean.Contains(classPrefix, StringComparison.Ordinal))
-        {
-            return clean;
-        }
-
-        if (lowered.StartsWith("class procedure ", StringComparison.Ordinal))
-        {
-            return $"class procedure {classPrefix}{clean["class procedure ".Length..]}";
-        }
-
-        if (lowered.StartsWith("class function ", StringComparison.Ordinal))
-        {
-            return $"class function {classPrefix}{clean["class function ".Length..]}";
-        }
-
-        if (lowered.StartsWith("procedure ", StringComparison.Ordinal))
-        {
-            return $"procedure {classPrefix}{clean["procedure ".Length..]}";
-        }
-
-        if (lowered.StartsWith("function ", StringComparison.Ordinal))
-        {
-            return $"function {classPrefix}{clean["function ".Length..]}";
-        }
-
-        if (lowered.StartsWith("constructor ", StringComparison.Ordinal))
-        {
-            return $"constructor {classPrefix}{clean["constructor ".Length..]}";
-        }
-
-        if (lowered.StartsWith("destructor ", StringComparison.Ordinal))
-        {
-            return $"destructor {classPrefix}{clean["destructor ".Length..]}";
-        }
-
-        return $"procedure {classPrefix}{clean}";
-    }
-
-    private static IReadOnlyList<LayoutItem> NormalizeLayoutItems(IReadOnlyCollection<LayoutItem> sourceItems)
-    {
-        if (sourceItems.Count == 0)
-        {
-            return [];
-        }
-
-        var expanded = new List<LayoutItem>();
+        var result = new List<LayoutItem>();
         foreach (var item in sourceItems)
         {
-            var clone = CloneItem(item);
-            var normalizedType = NormalizeItemType(clone.Type);
-            if (string.IsNullOrEmpty(normalizedType))
-            {
-                continue;
-            }
+            var normalizedType = NormalizeItemType(item.Type);
+            if (string.IsNullOrEmpty(normalizedType)) continue;
 
+            var clone = item.Clone();
             clone.Type = normalizedType;
             clone.Caption = clone.Caption?.Trim();
             clone.Left = Math.Max(0, clone.Left);
@@ -601,117 +336,163 @@ public sealed class DelphiGenerator
             clone.Thickness = Math.Clamp(clone.Thickness.GetValueOrDefault(1), 1, MaxPenThickness);
 
             if (clone.Type.Equals("Line", StringComparison.OrdinalIgnoreCase))
-            {
-                clone.Orientation = NormalizeLineOrientation(clone, item.Type);
-            }
+                clone.Orientation = InferLineOrientation(clone, item.Type);
 
-            expanded.Add(clone);
+            result.Add(clone);
         }
 
-        return expanded
-            .OrderBy(item => item.Top)
-            .ThenBy(item => item.Left)
-            .ToList();
+        return result.OrderBy(i => i.Top).ThenBy(i => i.Left).ToList();
     }
 
-    private static IReadOnlyList<LayoutItem> DeduplicateLayoutItems(IReadOnlyList<LayoutItem> items)
+    /// <summary>동일 속성의 아이템 중복 제거.</summary>
+    private static IReadOnlyList<LayoutItem> DeduplicateItems(IReadOnlyList<LayoutItem> items)
     {
-        if (items.Count <= 1)
-        {
-            return items;
-        }
+        if (items.Count <= 1) return items;
 
-        var deduped = new List<LayoutItem>(items.Count);
         var seen = new HashSet<string>(StringComparer.Ordinal);
+        var result = new List<LayoutItem>(items.Count);
         foreach (var item in items)
         {
             var key = string.Join("|",
-                item.Type ?? string.Empty,
-                item.Left,
-                item.Top,
-                item.Width,
-                item.Height,
-                item.Orientation ?? string.Empty,
-                item.Caption ?? string.Empty,
-                item.Align ?? string.Empty,
-                item.FontSize,
-                item.Bold,
-                item.Transparent,
-                item.TextColor ?? string.Empty,
-                item.Thickness,
-                item.StrokeColor ?? string.Empty,
-                item.FillColor ?? string.Empty,
-                item.Filled,
-                item.Stretch);
-            if (!seen.Add(key))
+                item.Type ?? "", item.Left, item.Top, item.Width, item.Height,
+                item.Orientation ?? "", item.Caption ?? "", item.Align ?? "",
+                item.FontSize, item.Bold, item.Transparent, item.TextColor ?? "",
+                item.Thickness, item.StrokeColor ?? "", item.FillColor ?? "",
+                item.Filled, item.Stretch);
+            if (seen.Add(key))
+                result.Add(item);
+        }
+        return result;
+    }
+
+    /// <summary>모든 아이템이 maxWidth 안에 들어오도록 클램핑.</summary>
+    private static IReadOnlyList<LayoutItem> ClampItemsToWidth(IReadOnlyList<LayoutItem> items, int maxWidth)
+    {
+        if (items.Count == 0) return items;
+        var currentMaxRight = items.Max(i => Math.Max(0, i.Left) + Math.Max(1, i.Width));
+        if (currentMaxRight <= maxWidth) return items;
+
+        return items.Select(item =>
+        {
+            var c = item.Clone();
+            c.Left = Math.Clamp(c.Left, 0, maxWidth - 1);
+            c.Width = Math.Max(1, Math.Min(c.Width, maxWidth - c.Left));
+            return c;
+        }).ToList();
+    }
+
+    /// <summary>밴드 경계 안으로 클램핑.</summary>
+    private static IReadOnlyList<LayoutItem> ClampItemsToBand(IReadOnlyList<LayoutItem> items, int bandWidth, int bandHeight)
+    {
+        if (items.Count == 0) return items;
+
+        return items.Select(item =>
+        {
+            var c = item.Clone();
+            c.Left = Math.Clamp(c.Left, 0, Math.Max(1, bandWidth) - 1);
+            c.Top = Math.Clamp(c.Top, 0, Math.Max(1, bandHeight) - 1);
+            c.Width = Math.Max(1, Math.Min(c.Width, bandWidth - c.Left));
+            c.Height = Math.Max(1, Math.Min(c.Height, bandHeight - c.Top));
+            return c;
+        }).ToList();
+    }
+
+    private static (int Width, int Height) CalculateBandSize(IReadOnlyCollection<LayoutItem> items)
+    {
+        if (items.Count == 0) return (MaxBandWidth, 1043);
+
+        var maxRight = items.Max(i => Math.Max(0, i.Left) + Math.Max(1, i.Width));
+        var maxBottom = items.Max(i => Math.Max(0, i.Top) + Math.Max(1, i.Height));
+
+        return (
+            Math.Clamp(maxRight + BandPadding, 64, MaxBandWidth),
+            Math.Clamp(maxBottom + BandPadding, 32, MaxBandHeight));
+    }
+
+    // ═══════════════════════════════════════════
+    //  DFM 인코딩 헬퍼
+    // ═══════════════════════════════════════════
+
+    /// <summary>
+    /// 문자열을 Delphi DFM 형식으로 인코딩.
+    /// ASCII는 '...'로 감싸고, 비ASCII 문자는 #유니코드값 으로 이스케이프한다.
+    /// 예: "안녕" → #50504#45397
+    /// </summary>
+    public string EncodeDelphi(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return "''";
+
+        var result = new StringBuilder();
+        var asciiBuffer = new StringBuilder();
+
+        foreach (var ch in text)
+        {
+            if (ch is >= ' ' and <= '~')
             {
+                asciiBuffer.Append(ch == '\'' ? "''" : ch);
                 continue;
             }
 
-            deduped.Add(item);
+            if (asciiBuffer.Length > 0)
+            {
+                result.Append('\'').Append(asciiBuffer).Append('\'');
+                asciiBuffer.Clear();
+            }
+            result.Append('#').Append((int)ch);
         }
 
-        return deduped;
+        if (asciiBuffer.Length > 0)
+            result.Append('\'').Append(asciiBuffer).Append('\'');
+
+        return result.Length == 0 ? "''" : result.ToString();
     }
 
-    private static LayoutItem CloneItem(LayoutItem source)
+    /// <summary>DFM의 Size.Values 속성 (픽셀 → mm 변환).</summary>
+    private string ItemSizeValues(LayoutItem item) =>
+        FormatSizeValues(item.Height, item.Left, item.Top, item.Width);
+
+    private string FormatSizeValues(int height, int left, int top, int width) =>
+        $"Size.Values = ({Environment.NewLine}" +
+        $"  {(height * PixelToMm).ToString("F12", CultureInfo.InvariantCulture)}{Environment.NewLine}" +
+        $"  {(left * PixelToMm).ToString("F12", CultureInfo.InvariantCulture)}{Environment.NewLine}" +
+        $"  {(top * PixelToMm).ToString("F12", CultureInfo.InvariantCulture)}{Environment.NewLine}" +
+        $"  {(width * PixelToMm).ToString("F12", CultureInfo.InvariantCulture)})";
+
+    private static string BandSizeValues(int height, int width)
     {
-        return new LayoutItem
-        {
-            Name = source.Name,
-            Type = source.Type,
-            Left = source.Left,
-            Top = source.Top,
-            Width = source.Width,
-            Height = source.Height,
-            Caption = source.Caption,
-            Align = source.Align,
-            FontSize = source.FontSize,
-            Bold = source.Bold,
-            Transparent = source.Transparent,
-            TextColor = source.TextColor,
-            Orientation = source.Orientation,
-            Thickness = source.Thickness,
-            StrokeColor = source.StrokeColor,
-            FillColor = source.FillColor,
-            Filled = source.Filled,
-            Stretch = source.Stretch
-        };
+        var hMm = Math.Round(height * PixelToMm, 15, MidpointRounding.AwayFromZero);
+        var wMm = Math.Round(width * PixelToMm, 15, MidpointRounding.AwayFromZero);
+        return $"Size.Values = ({Environment.NewLine}" +
+               $"  {hMm.ToString("F18", CultureInfo.InvariantCulture)}{Environment.NewLine}" +
+               $"  {wMm.ToString("F18", CultureInfo.InvariantCulture)})";
     }
 
-    private static string NormalizeDelphiColor(string? rawColor, string fallback)
+    // ═══════════════════════════════════════════
+    //  Delphi 값 변환
+    // ═══════════════════════════════════════════
+
+    /// <summary>
+    /// 다양한 색상 형식(#RRGGBB, $00BBGGRR, clXxx)을 Delphi 색상 문자열로 변환.
+    /// HTML #RRGGBB → Delphi $00BBGGRR (바이트 순서 반전).
+    /// </summary>
+    private static string ToDelphiColor(string? rawColor, string fallback)
     {
-        if (string.IsNullOrWhiteSpace(rawColor))
-        {
-            return fallback;
-        }
+        if (string.IsNullOrWhiteSpace(rawColor)) return fallback;
 
         var value = rawColor.Trim();
-        if (value.StartsWith("cl", StringComparison.OrdinalIgnoreCase))
-        {
-            return value;
-        }
-
-        if (value.StartsWith("$", StringComparison.Ordinal) && value.Length == 9)
-        {
-            return value;
-        }
+        if (value.StartsWith("cl", StringComparison.OrdinalIgnoreCase)) return value;
+        if (value.StartsWith("$", StringComparison.Ordinal) && value.Length == 9) return value;
 
         if (value.StartsWith("#", StringComparison.Ordinal))
         {
             var hex = value[1..];
-            if (hex.Length == 8)
-            {
-                hex = hex[2..];
-            }
+            if (hex.Length == 8) hex = hex[2..]; // #AARRGGBB → RRGGBB
 
             if (hex.Length == 6 &&
                 int.TryParse(hex[..2], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var r) &&
                 int.TryParse(hex.Substring(2, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var g) &&
                 int.TryParse(hex.Substring(4, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var b))
-            {
                 return $"$00{b:X2}{g:X2}{r:X2}";
-            }
         }
 
         return fallback;
@@ -719,22 +500,18 @@ public sealed class DelphiGenerator
 
     private static string ToDelphiBool(bool value) => value ? "True" : "False";
 
-    private static string MapAlign(string? align)
-    {
-        return (align ?? "Left").Trim().ToLowerInvariant() switch
+    private static string MapAlignment(string? align) =>
+        (align ?? "Left").Trim().ToLowerInvariant() switch
         {
             "center" => "taCenter",
             "right" => "taRightJustify",
             _ => "taLeftJustify"
         };
-    }
 
     private static string MapShape(string type, string? orientation)
     {
         if (type.Equals("Rect", StringComparison.OrdinalIgnoreCase))
-        {
             return "qrsRectangle";
-        }
 
         return (orientation ?? "H").Trim().ToUpperInvariant() switch
         {
@@ -743,35 +520,14 @@ public sealed class DelphiGenerator
         };
     }
 
-    private static string NormalizeLineOrientation(LayoutItem item, string? originalType)
-    {
-        var compactType = Compact(originalType);
-        if (compactType.Contains("vline", StringComparison.Ordinal) || compactType.Contains("vert", StringComparison.Ordinal))
-        {
-            return "V";
-        }
+    // ═══════════════════════════════════════════
+    //  타입 · 방향 정규화
+    // ═══════════════════════════════════════════
 
-        if (compactType.Contains("hline", StringComparison.Ordinal) || compactType.Contains("hor", StringComparison.Ordinal))
-        {
-            return "H";
-        }
-
-        if ((item.Orientation ?? string.Empty).Trim().Equals("V", StringComparison.OrdinalIgnoreCase))
-        {
-            return "V";
-        }
-
-        if (item.Height > item.Width)
-        {
-            return "V";
-        }
-
-        return "H";
-    }
-
+    /// <summary>다양한 타입 문자열("label", "box" 등)을 표준 타입으로 매핑.</summary>
     private static string NormalizeItemType(string? rawType)
     {
-        var compact = Compact(rawType);
+        var compact = CompactString(rawType);
         return compact switch
         {
             "text" or "label" or "caption" or "memo" or "string" => "Text",
@@ -782,99 +538,161 @@ public sealed class DelphiGenerator
         };
     }
 
-    private static string Compact(string? value)
+    /// <summary>선의 방향을 타입명/속성/크기에서 추론.</summary>
+    private static string InferLineOrientation(LayoutItem item, string? originalType)
     {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return string.Empty;
-        }
-
-        return new string(value
-            .Trim()
-            .ToLowerInvariant()
-            .Where(char.IsLetterOrDigit)
-            .ToArray());
+        var compact = CompactString(originalType);
+        if (compact.Contains("vline", StringComparison.Ordinal) || compact.Contains("vert", StringComparison.Ordinal))
+            return "V";
+        if (compact.Contains("hline", StringComparison.Ordinal) || compact.Contains("hor", StringComparison.Ordinal))
+            return "H";
+        if ((item.Orientation ?? "").Trim().Equals("V", StringComparison.OrdinalIgnoreCase))
+            return "V";
+        return item.Height > item.Width ? "V" : "H";
     }
 
-    private static bool ShouldWordWrap(LayoutItem item)
+    /// <summary>공백/특수문자를 제거하고 소문자로 변환.</summary>
+    private static string CompactString(string? value)
     {
-        var caption = item.Caption ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(caption))
-        {
-            return false;
-        }
-
-        if (caption.Contains('\n', StringComparison.Ordinal) || caption.Contains('\r', StringComparison.Ordinal))
-        {
-            return true;
-        }
-
-        var fontSize = Math.Clamp(item.FontSize.GetValueOrDefault(10), MinFontSize, MaxFontSize);
-        var lineHeight = Math.Max(1, (int)Math.Round(fontSize * 1.2, MidpointRounding.AwayFromZero));
-        if (item.Height < lineHeight * 2)
-        {
-            return false;
-        }
-
-        var estimatedCharsPerLine = Math.Max(1, item.Width / Math.Max(1, (int)Math.Round(fontSize * 0.75, MidpointRounding.AwayFromZero)));
-        return caption.Length > estimatedCharsPerLine;
+        if (string.IsNullOrWhiteSpace(value)) return string.Empty;
+        return new string(value.Trim().ToLowerInvariant().Where(char.IsLetterOrDigit).ToArray());
     }
+
+    // ═══════════════════════════════════════════
+    //  PAS 헬퍼
+    // ═══════════════════════════════════════════
+
+    private static void AppendUsesClause(StringBuilder sb, IEnumerable<string> baseUnits, IEnumerable<string> extraUnits)
+    {
+        var allUnits = baseUnits
+            .Concat(extraUnits)
+            .Where(u => !string.IsNullOrWhiteSpace(u))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        sb.AppendLine("uses");
+        for (var i = 0; i < allUnits.Count; i++)
+            sb.AppendLine($"  {allUnits[i]}{(i == allUnits.Count - 1 ? ";" : ",")}");
+    }
+
+    private static IReadOnlyList<string> NormalizeUnitNames(IReadOnlyCollection<string>? units)
+    {
+        if (units is null or { Count: 0 }) return [];
+        return units
+            .Select(u => (u ?? "").Trim().TrimEnd(';').Trim())
+            .Where(u => !string.IsNullOrWhiteSpace(u))
+            .ToList();
+    }
+
+    private static IReadOnlyList<(string Declaration, IReadOnlyList<string> Body)> NormalizeMethods(IReadOnlyCollection<PasMethodSpec>? methods)
+    {
+        if (methods is null or { Count: 0 }) return [];
+
+        return methods
+            .Select(m =>
+            {
+                var decl = EnsureSemicolon(m.Declaration);
+                if (string.IsNullOrWhiteSpace(decl)) return default;
+
+                var body = (m.Body ?? [])
+                    .Select(l => (l ?? "").Trim())
+                    .Where(l =>
+                        !l.Equals("begin", StringComparison.OrdinalIgnoreCase) &&
+                        !l.Equals("end;", StringComparison.OrdinalIgnoreCase) &&
+                        !l.Equals("end", StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                if (body.Count == 0) body.Add("// TODO");
+                return (Declaration: decl, Body: (IReadOnlyList<string>)body);
+            })
+            .Where(m => !string.IsNullOrWhiteSpace(m.Declaration))
+            .ToList();
+    }
+
+    private static string EnsureSemicolon(string declaration)
+    {
+        var clean = (declaration ?? "").Trim();
+        return string.IsNullOrWhiteSpace(clean) ? string.Empty
+            : clean.EndsWith(";", StringComparison.Ordinal) ? clean : clean + ";";
+    }
+
+    /// <summary>
+    /// 인터페이스 선언("procedure Foo;")을 구현부 선언("procedure TClassName.Foo;")으로 변환.
+    /// </summary>
+    private static string BuildImplementationDeclaration(string declaration, string className)
+    {
+        var clean = EnsureSemicolon(declaration);
+        if (string.IsNullOrWhiteSpace(clean)) return string.Empty;
+
+        var prefix = $"T{className}.";
+        if (clean.Contains(prefix, StringComparison.Ordinal)) return clean;
+
+        var lowered = clean.ToLowerInvariant();
+        string[] keywords = ["class procedure ", "class function ", "procedure ", "function ", "constructor ", "destructor "];
+        foreach (var kw in keywords)
+        {
+            if (lowered.StartsWith(kw, StringComparison.Ordinal))
+                return $"{kw.TrimStart()}{prefix}{clean[kw.Length..]}";
+        }
+
+        return $"procedure {prefix}{clean}";
+    }
+
+    // ═══════════════════════════════════════════
+    //  컴포넌트 이름 생성
+    // ═══════════════════════════════════════════
 
     private static string BuildComponentName(HashSet<string> usedNames, string fallbackPrefix, string? preferred, ref int counter)
     {
-        var sanitized = SanitizeDelphiIdentifier(preferred);
+        var sanitized = SanitizeIdentifier(preferred);
         var candidate = string.IsNullOrWhiteSpace(sanitized)
             ? $"{fallbackPrefix}{counter}"
             : sanitized!;
 
         if (!char.IsLetter(candidate[0]) && candidate[0] != '_')
-        {
             candidate = $"{fallbackPrefix}_{candidate}";
-        }
 
-        if (usedNames.Add(candidate))
-        {
-            return candidate;
-        }
+        if (usedNames.Add(candidate)) return candidate;
 
-        var seed = candidate;
         var suffix = 2;
-        while (!usedNames.Add($"{seed}_{suffix}"))
-        {
-            suffix++;
-        }
-
-        return $"{seed}_{suffix}";
+        while (!usedNames.Add($"{candidate}_{suffix}")) suffix++;
+        return $"{candidate}_{suffix}";
     }
 
-    private static string? SanitizeDelphiIdentifier(string? value)
+    private static string? SanitizeIdentifier(string? value)
     {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return null;
-        }
+        if (string.IsNullOrWhiteSpace(value)) return null;
 
-        static bool IsAsciiLetterOrDigit(char ch) =>
-            (ch is >= 'A' and <= 'Z') || (ch is >= 'a' and <= 'z') || (ch is >= '0' and <= '9');
-
-        var chars = value
-            .Trim()
-            .Select(ch => IsAsciiLetterOrDigit(ch) || ch == '_' ? ch : '_')
+        var chars = value.Trim()
+            .Select(ch => (ch is >= 'A' and <= 'Z') || (ch is >= 'a' and <= 'z') || (ch is >= '0' and <= '9') || ch == '_' ? ch : '_')
             .ToArray();
         var candidate = new string(chars);
         while (candidate.Contains("__", StringComparison.Ordinal))
-        {
             candidate = candidate.Replace("__", "_", StringComparison.Ordinal);
-        }
-
         candidate = candidate.Trim('_');
-        if (string.IsNullOrWhiteSpace(candidate))
-        {
-            return null;
-        }
 
+        if (string.IsNullOrWhiteSpace(candidate)) return null;
         return candidate.Length > 48 ? candidate[..48] : candidate;
+    }
+
+    // ═══════════════════════════════════════════
+    //  유틸리티
+    // ═══════════════════════════════════════════
+
+    private static void WriteEntry(ZipArchive archive, string entryName, string content)
+    {
+        var entry = archive.CreateEntry(entryName);
+        using var writer = new StreamWriter(entry.Open(), Encoding.ASCII);
+        writer.Write(content);
+    }
+
+    private sealed class ComponentCounters
+    {
+        public int Label;
+        public int Shape;
+        public int Image;
     }
 }
 
+/// <summary>DFM에서 컴포넌트 하나의 이름과 Delphi 타입.</summary>
 public sealed record ComponentRef(string Name, string Type);

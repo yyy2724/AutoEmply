@@ -1,16 +1,17 @@
-﻿@inherits LayoutComponentBase
-@implements IDisposable
+@inherits LayoutComponentBase
+@implements IAsyncDisposable
 @inject Toolbelt.Blazor.HotKeys2.HotKeys HotKeys
 
-<MudThemeProvider/>
-<MudDialogProvider/>
-<MudSnackbarProvider/>
+<MudThemeProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
 
 <MudLayout>
     <MudAppBar Elevation="1">
         <MudText Typo="Typo.h6">AutoEmply</MudText>
-        <MudSpacer/>
+        <MudSpacer />
         <MudButton Variant="Variant.Text" Color="Color.Inherit" Href="/create">생성</MudButton>
+        <MudButton Variant="Variant.Text" Color="Color.Inherit" Href="/library">도서관</MudButton>
         @if (_showPresetButton)
         {
             <MudButton Variant="Variant.Text" Color="Color.Inherit" Href="/presets">프리셋 관리</MudButton>
@@ -25,21 +26,19 @@
     </MudMainContent>
 </MudLayout>
 
-@code{
+@code {
     private Toolbelt.Blazor.HotKeys2.HotKeysContext? _hotKeys;
     private bool _showPresetButton;
 
     protected override void OnAfterRender(bool firstRender)
     {
-        if (!firstRender)
-            return;
+        if (!firstRender) return;
 
         _hotKeys = HotKeys.CreateContext()
-            .Add(
-                Toolbelt.Blazor.HotKeys2.ModCode.None,
-                Toolbelt.Blazor.HotKeys2.Code.F1,
-                TogglePresetButton,
-                "Toggle Presets Button");
+            .Add(Toolbelt.Blazor.HotKeys2.ModCode.None,
+                 Toolbelt.Blazor.HotKeys2.Code.F1,
+                 TogglePresetButton,
+                 "Toggle Presets Button");
     }
 
     private void TogglePresetButton()
@@ -48,8 +47,9 @@
         StateHasChanged();
     }
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
-        _hotKeys?.Dispose();
+        if (_hotKeys is not null)
+            await _hotKeys.DisposeAsync();
     }
 }

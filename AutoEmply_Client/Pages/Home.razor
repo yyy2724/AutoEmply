@@ -1,5 +1,6 @@
-﻿@page "/home"
-@implements IDisposable
+@page "/"
+@page "/home"
+@implements IAsyncDisposable
 @inject Toolbelt.Blazor.HotKeys2.HotKeys HotKeys
 
 <PageTitle>홈</PageTitle>
@@ -12,6 +13,7 @@
 
     <MudStack Row="true" Spacing="2">
         <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="/create">생성 화면</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Secondary" Href="/library">결과지 도서관</MudButton>
         @if (_showPresetButton)
         {
             <MudButton Variant="Variant.Outlined" Color="Color.Primary" Href="/presets">프리셋 관리 화면</MudButton>
@@ -25,15 +27,13 @@
 
     protected override void OnAfterRender(bool firstRender)
     {
-        if (!firstRender)
-            return;
+        if (!firstRender) return;
 
         _hotKeys = HotKeys.CreateContext()
-            .Add(
-                Toolbelt.Blazor.HotKeys2.ModCode.None,
-                Toolbelt.Blazor.HotKeys2.Code.F1,
-                TogglePresetButton,
-                "Toggle Presets Button");
+            .Add(Toolbelt.Blazor.HotKeys2.ModCode.None,
+                 Toolbelt.Blazor.HotKeys2.Code.F1,
+                 TogglePresetButton,
+                 "Toggle Presets Button");
     }
 
     private void TogglePresetButton()
@@ -42,8 +42,9 @@
         StateHasChanged();
     }
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
-        _hotKeys?.Dispose();
+        if (_hotKeys is not null)
+            await _hotKeys.DisposeAsync();
     }
 }

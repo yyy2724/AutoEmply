@@ -1,8 +1,13 @@
+using AutoEmply.Models;
 using AutoEmply.Services;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AutoEmply.Controllers;
 
+/// <summary>
+/// 이미지/PDF 업로드 → AI 분석 → JSON 또는 ZIP을 반환하는 엔드포인트 모음.
+/// 내부적으로 ImageGenerationService에 모든 처리를 위임한다.
+/// </summary>
 [ApiController]
 [Route("api")]
 public sealed class ImageExportController(ImageGenerationService imageGenerationService) : ControllerBase
@@ -14,12 +19,11 @@ public sealed class ImageExportController(ImageGenerationService imageGeneration
         [FromForm] IFormFile image,
         [FromForm] Guid? presetId,
         [FromForm] bool useV2,
-        CancellationToken cancellationToken)
+        CancellationToken ct)
     {
         _ = useV2;
-        var result = await imageGenerationService.GenerateLayoutSpecAsync(formName, image, presetId, cancellationToken);
-        if (!result.Success) return Failure(result);
-        return Ok(result.Value);
+        var result = await imageGenerationService.GenerateLayoutSpecAsync(formName, image, presetId, ct);
+        return result.Success ? Ok(result.Value) : ToErrorResponse(result);
     }
 
     [HttpPost("export-from-image")]
@@ -29,12 +33,13 @@ public sealed class ImageExportController(ImageGenerationService imageGeneration
         [FromForm] IFormFile image,
         [FromForm] Guid? presetId,
         [FromForm] bool useV2,
-        CancellationToken cancellationToken)
+        CancellationToken ct)
     {
         _ = useV2;
-        var result = await imageGenerationService.ExportZipAsync(formName, image, presetId, cancellationToken);
-        if (!result.Success) return Failure(result);
-        return File(result.Value!.Bytes, "application/zip", result.Value.FileName);
+        var result = await imageGenerationService.ExportZipAsync(formName, image, presetId, ct);
+        return result.Success
+            ? File(result.Value!.Bytes, "application/zip", result.Value.FileName)
+            : ToErrorResponse(result);
     }
 
     [HttpPost("documents/{docId}/generate")]
@@ -45,37 +50,27 @@ public sealed class ImageExportController(ImageGenerationService imageGeneration
         [FromForm] IFormFile image,
         [FromForm] Guid? presetId,
         [FromForm] bool useV2,
-        CancellationToken cancellationToken)
+        CancellationToken ct)
     {
         _ = docId;
         _ = useV2;
-
-        var result = await imageGenerationService.GenerateLayoutSpecAsync(formName, image, presetId, cancellationToken);
-        if (!result.Success) return Failure(result);
-        return Ok(result.Value);
+        var result = await imageGenerationService.GenerateLayoutSpecAsync(formName, image, presetId, ct);
+        return result.Success ? Ok(result.Value) : ToErrorResponse(result);
     }
 
     [HttpPost("generate-json-v2")]
     [Consumes("multipart/form-data")]
-    public async Task<IActionResult> GenerateJsonV2(
-        [FromForm] string formName,
-        [FromForm] IFormFile image,
-        [FromForm] Guid? presetId,
-        CancellationToken cancellationToken)
-    {
-        return await GenerateJson(formName, image, presetId, useV2: false, cancellationToken);
-    }
+    public Task<IActionResult> GenerateJsonV2(
+        [FromForm] string formName, [FromForm] IFormFile image,
+        [FromForm] Guid? presetId, CancellationToken ct)
+        => GenerateJson(formName, image, presetId, useV2: false, ct);
 
     [HttpPost("export-from-image-v2")]
     [Consumes("multipart/form-data")]
-    public async Task<IActionResult> ExportFromImageV2(
-        [FromForm] string formName,
-        [FromForm] IFormFile image,
-        [FromForm] Guid? presetId,
-        CancellationToken cancellationToken)
-    {
-        return await ExportFromImage(formName, image, presetId, useV2: false, cancellationToken);
-    }
+    public Task<IActionResult> ExportFromImageV2(
+        [FromForm] string formName, [FromForm] IFormFile image,
+        [FromForm] Guid? presetId, CancellationToken ct)
+        => ExportFromImage(formName, image, presetId, useV2: false, ct);
 
     [HttpPost("generate-structure")]
     [Consumes("multipart/form-data")]
@@ -83,29 +78,17 @@ public sealed class ImageExportController(ImageGenerationService imageGeneration
         [FromForm] string formName,
         [FromForm] IFormFile image,
         [FromForm] Guid? presetId,
-        CancellationToken cancellationToken)
+        CancellationToken ct)
     {
-        var result = await imageGenerationService.GenerateStructureAsync(formName, image, presetId, cancellationToken);
-        if (!result.Success) return Failure(result);
-        return Ok(result.Value);
+        var result = await imageGenerationService.GenerateStructureAsync(formName, image, presetId, ct);
+        return result.Success ? Ok(result.Value) : ToErrorResponse(result);
     }
 
-    private IActionResult Failure<T>(ServiceResult<T> result)
+    /// <summary>ServiceResult 실패를 적절한 HTTP 응답으로 변환.</summary>
+    private IActionResult ToErrorResponse<T>(ServiceResult<T> result) => result.StatusCode switch
     {
-        if (result.StatusCode == 404)
-        {
-            return NotFound(new { error = result.Error });
-        }
-
-        if (result.StatusCode == 400)
-        {
-            return BadRequest(new { error = result.Error });
-        }
-
-        return StatusCode(result.StatusCode, new
-        {
-            error = result.Error,
-            details = result.Details
-        });
-    }
+        404 => NotFound(new { error = result.Error }),
+        400 => BadRequest(new { error = result.Error }),
+        _ => StatusCode(result.StatusCode, new { error = result.Error, details = result.Details })
+    };
 }
