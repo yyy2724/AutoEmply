@@ -1,4 +1,4 @@
-@page "/"
+﻿@page "/"
 @page "/create"
 @using System.Text
 @using System.Text.Json
@@ -7,15 +7,14 @@
 
 <PageTitle>생성</PageTitle>
 
-<MudPaper Class="pa-6"> @*카드박스 pa - 6 = padding 24px*@
-    <MudStack Spacing="2">@*세로 간격 2 = 8px*@
-        <MudText Typo="Typo.h5">이미지/PDF로 QuickReport 생성</MudText> @*제목 텍스트 h5크기*@
-        <MudText Typo="Typo.body2">프롬프트는 DB 누적 내역을 기준으로 API가 참고합니다.</MudText> @*본분 텍스트*@
+<MudPaper Class="pa-6">
+    <MudStack Spacing="2">
+        <MudText Typo="Typo.h5">이미지/PDF로 QuickReport 생성</MudText>
+        <MudText Typo="Typo.body2">프롬프트는 DB의 활성 프리셋을 기준으로 API가 참조합니다.</MudText>
 
         <MudTextField @bind-Value="FormName" Label="폼 이름" Variant="Variant.Outlined" />
 
         <div>
-            @*파일 업로드 섹션*@
             <MudText Typo="Typo.subtitle2" Class="mb-1">파일 업로드 (jpg, png, webp, gif, pdf, 최대 5MB)</MudText>
             <InputFile OnChange="OnImageChanged"
                        accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,image/jpeg,image/png,image/gif,image/webp,application/pdf" />
@@ -188,7 +187,7 @@
                     if (text.Contains("ClaudeStatus=529", StringComparison.OrdinalIgnoreCase) ||
                         text.Contains("Overloaded", StringComparison.OrdinalIgnoreCase))
                     {
-                        return "서버 과부하 클로드 문제입니다.";
+                        return "서버 과부하로 인한 일시 오류입니다.";
                     }
                 }
             }

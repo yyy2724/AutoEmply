@@ -14,6 +14,7 @@ builder.Services.AddSingleton<DelphiGenerator>();
 builder.Services.AddSingleton<StructureToLayoutConverter>();
 builder.Services.AddSingleton<LayoutPostProcessor>();
 builder.Services.AddSingleton<AiModelState>();
+builder.Services.AddScoped<ImageGenerationService>();
 builder.Services.AddHttpClient<ClaudeClient>(client =>
 {
     var timeoutSeconds = builder.Configuration.GetValue<int?>("Anthropic:RequestTimeoutSeconds") ?? 240;

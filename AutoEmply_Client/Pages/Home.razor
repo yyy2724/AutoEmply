@@ -1,4 +1,4 @@
-@page "/home"
+﻿@page "/home"
 @implements IDisposable
 @inject Toolbelt.Blazor.HotKeys2.HotKeys HotKeys
 
@@ -7,44 +7,43 @@
 <MudPaper Class="pa-6">
     <MudText Typo="Typo.h4" GutterBottom="true">AutoEmply 클라이언트</MudText>
     <MudText Typo="Typo.body1" Class="mb-4">
-        이미지/PDF를 분석해 Delphi QuickReport 파일을 만들고, 프롬프트를 DB에 누적 저장할 수 있습니다.
+        이미지/PDF를 분석해 Delphi QuickReport 파일을 만들고, 프롬프트를 DB에서 추적 관리할 수 있습니다.
     </MudText>
 
     <MudStack Row="true" Spacing="2">
         <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="/create">생성 화면</MudButton>
-        @if (_showPrestButton)
+        @if (_showPresetButton)
         {
-            <MudButton Variant="Variant.Outlined" Color="Color.Primary" Href="/presets">프롬프트 저장 화면</MudButton>
+            <MudButton Variant="Variant.Outlined" Color="Color.Primary" Href="/presets">프리셋 관리 화면</MudButton>
         }
     </MudStack>
 </MudPaper>
 
 @code {
     private Toolbelt.Blazor.HotKeys2.HotKeysContext? _hotKeys;
-    private bool _showPrestButton = false; // 처음에는 숨깁니다.
+    private bool _showPresetButton;
 
     protected override void OnAfterRender(bool firstRender)
     {
         if (!firstRender)
             return;
+
         _hotKeys = HotKeys.CreateContext()
             .Add(
-                Toolbelt.Blazor.HotKeys2.ModCode.None, // Ctrl, Alt, Shift 등의 조합 없이 단일 키로 설정
-                Toolbelt.Blazor.HotKeys2.Code.F1, // F1 키를 단축키로 설정
-                TogglePrestsButton, // 단축키가 눌렸을 때 실행할 메서드
+                Toolbelt.Blazor.HotKeys2.ModCode.None,
+                Toolbelt.Blazor.HotKeys2.Code.F1,
+                TogglePresetButton,
                 "Toggle Presets Button");
     }
 
-    private void TogglePrestsButton()
+    private void TogglePresetButton()
     {
-        _showPrestButton = !_showPrestButton; // F1 키를 누를 때마다 버튼의 표시 상태를 토글합니다.
-        StateHasChanged(); // UI 업데이트
+        _showPresetButton = !_showPresetButton;
+        StateHasChanged();
     }
 
     public void Dispose()
     {
         _hotKeys?.Dispose();
     }
-
-
 }
