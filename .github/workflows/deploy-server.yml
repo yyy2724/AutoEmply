@@ -22,5 +22,7 @@ jobs:
             git pull
             pkill -f "dotnet run" || true
             sudo fuser -k 5003/tcp || true
+            sleep 2
             cd AutoEmply
-            ASPNETCORE_ENVIRONMENT=Production nohup dotnet run --no-launch-profile &
+            nohup bash -c 'ASPNETCORE_ENVIRONMENT=Production dotnet run --no-launch-profile' > ~/nohup.out 2>&1 &
+            disown
