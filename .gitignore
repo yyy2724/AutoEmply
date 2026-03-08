@@ -2,3 +2,8 @@
 bin/
 obj/
 *.user
+.claude
+.idea
+.dotnet
+.dotnet_home
+_build_tmp
