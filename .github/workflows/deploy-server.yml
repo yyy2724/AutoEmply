@@ -20,9 +20,4 @@ jobs:
           script: |
             cd ~/AutoEmply
             git pull
-            pkill -f "dotnet run" || true
-            sudo fuser -k 5003/tcp || true
-            sleep 2
-            cd AutoEmply
-            nohup bash -c 'ASPNETCORE_ENVIRONMENT=Production dotnet run --no-launch-profile' > ~/nohup.out 2>&1 &
-            disown
+            sudo systemctl restart autoemply
