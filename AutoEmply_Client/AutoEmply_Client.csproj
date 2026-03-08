@@ -17,5 +17,16 @@
       <CopyToPublishDirectory>Never</CopyToPublishDirectory>
     </Content>
   </ItemGroup>
+  <ItemGroup>
+    <_ContentIncludedByDefault Remove="publish\web.config" />
+    <_ContentIncludedByDefault Remove="publish\AutoEmply_Client.staticwebassets.endpoints.json" />
+    <_ContentIncludedByDefault Remove="publish\publish\AutoEmply_Client.staticwebassets.endpoints.json" />
+    <_ContentIncludedByDefault Remove="publish\publish\segmentation-rules.json" />
+    <_ContentIncludedByDefault Remove="publish\publish\wwwroot\appsettings.json" />
+    <_ContentIncludedByDefault Remove="publish\publish\wwwroot\_framework\blazor.boot.json" />
+    <_ContentIncludedByDefault Remove="publish\segmentation-rules.json" />
+    <_ContentIncludedByDefault Remove="publish\wwwroot\appsettings.json" />
+    <_ContentIncludedByDefault Remove="publish\wwwroot\_framework\blazor.boot.json" />
+  </ItemGroup>
 
 </Project>
