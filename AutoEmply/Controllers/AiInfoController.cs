@@ -6,7 +6,7 @@ namespace AutoEmply.Controllers;
 /// <summary>
 /// 현재 사용 중인 AI 모델 정보를 반환하는 엔드포인트.
 /// 클라이언트 UI 하단에 "AI 버전" 표시용.
-/// </summary> 아이고야
+/// </summary> 아이고
 [ApiController]
 [Route("api")]
 public sealed class AiInfoController(IConfiguration configuration, AiModelState aiModelState) : ControllerBase
