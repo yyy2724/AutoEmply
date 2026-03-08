@@ -10,7 +10,7 @@ namespace AutoEmply.Controllers;
 /// <summary>
 /// 결과지 도서관 API.
 /// 보고서 템플릿(DFM+PAS+미리보기)을 업로드, 조회, 다운로드, 삭제한다.
-/// </summary>
+/// </summary> 아이고야
 [ApiController]
 [Route("api/report-templates")]
 public sealed class ReportTemplateController(AppDbContext dbContext) : ControllerBase
