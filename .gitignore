@@ -1,0 +1,14 @@
+.idea/
+*.iml
+AutoEmply-server/.gradle/
+AutoEmply-server/.gradle-home/
+AutoEmply-server/.gradle-user-home/
+AutoEmply-server/build/
+
+AutoEmply-client/node_modules/
+AutoEmply-client/dist/
+AutoEmply-client/.vite/
+
+
+*.log
+.DS_Store
