@@ -6,7 +6,7 @@ const panelStyle = {
   background: '#11151b',
   boxShadow: 'none',
 }
-//아이고
+//아이고야
 function PageSection({ title, description, children }: PageSectionProps) {
   return (
     <Paper p="xl" style={panelStyle}>
