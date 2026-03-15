@@ -5,11 +5,12 @@ on:
     branches:
       - master
     paths:
-      - 'AutoEmply/**'
+      - 'AutoEmply-server/**'
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
       - name: Deploy to EC2
         uses: appleboy/ssh-action@v0.1.10
@@ -18,6 +19,8 @@ jobs:
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            cd ~/AutoEmply
+            cd ~/AutoEmply-Java/AutoEmply-server
             git pull
+            ./gradlew bootJar
+            cp build/libs/*-SNAPSHOT.jar /home/ubuntu/app/autoemply.jar
             sudo systemctl restart autoemply
