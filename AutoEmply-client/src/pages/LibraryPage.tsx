@@ -1,4 +1,4 @@
-import { ActionIcon, Alert, Button, FileInput, Grid, Group, Image, ScrollArea, Select, Stack, Table, Tabs, Text, TextInput, Title } from '@mantine/core'
+import { ActionIcon, Alert, Button, ComboboxItem, FileInput, Grid, Group, Image, ScrollArea, Select, Stack, Table, Tabs, Text, TextInput, Title } from '@mantine/core'
 import { IconDownload, IconPhoto, IconRefresh, IconTrash } from '@tabler/icons-react'
 import { useMemo } from 'react'
 import PageSection from '../components/PageSection'
@@ -36,7 +36,7 @@ function LibraryPage() {
     removeTemplate,
   } = useTemplateLibrary()
 
-  const categoryOptions = useMemo(
+  const categoryOptions = useMemo<ComboboxItem[]>(
     () => categories.map((category) => ({ value: category, label: category })),
     [categories],
   )
@@ -45,11 +45,11 @@ function LibraryPage() {
     <Grid gutter="lg">
       <Grid.Col span={{ base: 12, lg: 4 }}>
         <Stack gap="lg">
-          <PageSection title="?쒗뵆由?紐⑸줉" description="??λ맂 ?쒗뵆由우쓣 寃?됲븯怨??좏깮?⑸땲??">
+          <PageSection title="템플릿 목록" description="등록된 템플릿을 검색하고 선택합니다.">
             <Stack>
               <Group>
                 <TextInput
-                  placeholder="寃??"
+                  placeholder="검색"
                   value={searchText}
                   onChange={(event) => setSearchText(event.currentTarget.value)}
                   style={{ flex: 1 }}
@@ -60,7 +60,7 @@ function LibraryPage() {
               </Group>
               <Tabs value={activeCategory} onChange={(value) => setActiveCategory(value ?? 'all')}>
                 <Tabs.List>
-                  <Tabs.Tab value="all">?꾩껜</Tabs.Tab>
+                  <Tabs.Tab value="all">전체</Tabs.Tab>
                   {categories.map((category) => (
                     <Tabs.Tab key={category} value={category}>
                       {category}
@@ -89,29 +89,26 @@ function LibraryPage() {
             </Stack>
           </PageSection>
 
-          <PageSection title="?쒗뵆由??낅줈??">
+          <PageSection title="템플릿 업로드">
             <Stack>
-              <TextInput label="?쒗뵆由??대쫫" value={uploadName} onChange={(event) => setUploadName(event.currentTarget.value)} />
+              <TextInput label="템플릿 이름" value={uploadName} onChange={(event) => setUploadName(event.currentTarget.value)} />
               <Select
-                label="湲곗〈 移댄뀒怨좊━ ?좏깮"
-                placeholder="?좏깮?섎㈃ 湲곗〈 移댄뀒怨좊━瑜??ъ슜?⑸땲??"
+                label="카테고리"
+                placeholder="기존 카테고리를 선택하거나 새 이름을 입력"
                 data={categoryOptions}
-                value={categories.includes(uploadCategory) ? uploadCategory : null}
+                value={uploadCategory || null}
                 onChange={(value) => setUploadCategory(value ?? '')}
+                onSearchChange={setUploadCategory}
+                searchValue={uploadCategory}
                 searchable
                 clearable
+                nothingFoundMessage="일치하는 카테고리가 없습니다"
               />
-              <TextInput
-                label="?덈뒗 ??移댄뀒怨좊━ ?낅젰"
-                placeholder="새 카테고리가 필요하면 직접 입력"
-                value={uploadCategory}
-                onChange={(event) => setUploadCategory(event.currentTarget.value)}
-              />
-              <FileInput label="DFM ?뚯씪" value={dfmFile} onChange={setDfmFile} accept=".dfm" />
-              <FileInput label="PAS ?뚯씪" value={pasFile} onChange={setPasFile} accept=".pas" />
-              <FileInput label="誘몃━蹂닿린 ?대?吏/PDF" value={previewFile} onChange={setPreviewFile} />
+              <FileInput label="DFM 파일" value={dfmFile} onChange={setDfmFile} accept=".dfm" />
+              <FileInput label="PAS 파일" value={pasFile} onChange={setPasFile} accept=".pas" />
+              <FileInput label="미리보기 이미지/PDF" value={previewFile} onChange={setPreviewFile} />
               <Button onClick={() => void createTemplate()} loading={busy} color="dark">
-                ?낅줈??
+                업로드
               </Button>
             </Stack>
           </PageSection>
@@ -120,12 +117,12 @@ function LibraryPage() {
 
       <Grid.Col span={{ base: 12, lg: 8 }}>
         <PageSection
-          title={selectedTemplate ? selectedTemplate.name : '?쒗뵆由??곸꽭'}
-          description="誘몃━蹂닿린 ?뺤씤怨?ZIP ?ㅼ슫濡쒕뱶瑜??????덉뒿?덈떎."
+          title={selectedTemplate ? selectedTemplate.name : '템플릿 상세'}
+          description="미리보기를 확인하고 ZIP 파일을 다운로드할 수 있습니다."
         >
           {!selectedTemplate ? (
             <Alert color="gray" icon={<IconPhoto size={16} />}>
-              紐⑸줉?먯꽌 ?쒗뵆由우쓣 ?좏깮?섏꽭??
+              목록에서 템플릿을 선택해 주세요.
             </Alert>
           ) : (
             <Stack>
@@ -133,7 +130,7 @@ function LibraryPage() {
                 <Stack gap={0}>
                   <Title order={4}>{selectedTemplate.name}</Title>
                   <Text size="sm" c="dimmed">
-                    {selectedTemplate.category} 쨌 ?먮낯 ??{selectedTemplate.originalFormName}
+                    {selectedTemplate.category} · 원본 폼명 {selectedTemplate.originalFormName}
                   </Text>
                 </Stack>
                 <ActionIcon variant="subtle" color="red" size="lg" onClick={() => void removeTemplate()} loading={busy}>
@@ -143,7 +140,7 @@ function LibraryPage() {
               {selectedTemplate.hasPreview ? (
                 selectedTemplate.previewContentType === 'application/pdf' ? (
                   <iframe
-                    title="誘몃━蹂닿린"
+                    title="미리보기"
                     src={`${buildApiUrl(`/api/report-templates/${selectedTemplate.id}/preview`)}#toolbar=0`}
                     style={{ width: '100%', minHeight: 900, border: 0, borderRadius: 12 }}
                   />
@@ -151,17 +148,17 @@ function LibraryPage() {
                   <Image radius="md" src={buildApiUrl(`/api/report-templates/${selectedTemplate.id}/preview`)} alt={selectedTemplate.name} />
                 )
               ) : (
-                <Alert color="gray">誘몃━蹂닿린 ?먯궛???놁뒿?덈떎.</Alert>
+                <Alert color="gray">미리보기 파일이 없습니다.</Alert>
               )}
               <Group align="end">
                 <TextInput
-                  label="?대낫?????대쫫"
+                  label="다운로드 폼 이름"
                   value={downloadFormName}
                   onChange={(event) => setDownloadFormName(event.currentTarget.value)}
                   style={{ flex: 1 }}
                 />
                 <Button leftSection={<IconDownload size={16} />} onClick={() => void downloadTemplate()} loading={busy} color="dark">
-                  ZIP ?ㅼ슫濡쒕뱶
+                  ZIP 다운로드
                 </Button>
               </Group>
             </Stack>
@@ -186,15 +183,15 @@ function TemplateList({ templates, selectedTemplate, onSelect, onDownloadName }:
       <Table highlightOnHover stickyHeader>
         <Table.Thead>
           <Table.Tr>
-            <Table.Th>?대쫫</Table.Th>
-            <Table.Th>?곹깭</Table.Th>
+            <Table.Th>이름</Table.Th>
+            <Table.Th>상태</Table.Th>
           </Table.Tr>
         </Table.Thead>
         <Table.Tbody>
           {templates.length === 0 ? (
             <Table.Tr>
               <Table.Td colSpan={2}>
-                <Text c="dimmed">?쒗뵆由우씠 ?놁뒿?덈떎.</Text>
+                <Text c="dimmed">템플릿이 없습니다.</Text>
               </Table.Td>
             </Table.Tr>
           ) : (
@@ -216,7 +213,7 @@ function TemplateList({ templates, selectedTemplate, onSelect, onDownloadName }:
                     </Text>
                   </Stack>
                 </Table.Td>
-                <Table.Td>{item.hasPreview ? '誘몃━蹂닿린 ?덉쓬' : '?뚯씪留??덉쓬'}</Table.Td>
+                <Table.Td>{item.hasPreview ? '미리보기 있음' : '파일만 있음'}</Table.Td>
               </Table.Tr>
             ))
           )}
