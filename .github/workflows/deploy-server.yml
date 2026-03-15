@@ -1,14 +1,11 @@
 name: Deploy Server to EC2
-
 on:
   push:
     branches:
       - master
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     steps:
       - name: Deploy to EC2
         uses: appleboy/ssh-action@v0.1.10
@@ -19,7 +16,7 @@ jobs:
           script: |
             cd ~/AutoEmply-Java/AutoEmply-server
             git pull
-	    chmod +x gradlew	
+            chmod +x gradlew
             ./gradlew bootJar
             cp build/libs/*-SNAPSHOT.jar /home/ubuntu/app/autoemply.jar
             sudo systemctl restart autoemply
