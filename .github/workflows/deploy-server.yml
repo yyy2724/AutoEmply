@@ -19,6 +19,7 @@ jobs:
           script: |
             cd ~/AutoEmply-Java/AutoEmply-server
             git pull
+	    chmod +x gradlew	
             ./gradlew bootJar
             cp build/libs/*-SNAPSHOT.jar /home/ubuntu/app/autoemply.jar
             sudo systemctl restart autoemply
