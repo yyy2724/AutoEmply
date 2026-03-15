@@ -1,0 +1,32 @@
+name: Deploy Client to S3
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'AutoEmply_Client/**'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Publish
+        run: dotnet publish AutoEmply_Client/AutoEmply_Client.csproj -c Release -o publish
+
+      - name: Deploy to S3
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-northeast-2
+
+      - name: Upload to S3
+        run: aws s3 sync publish/wwwroot s3://autoemply-client --delete
