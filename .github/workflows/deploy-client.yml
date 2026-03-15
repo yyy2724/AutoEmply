@@ -33,7 +33,7 @@ jobs:
           aws-region: ap-northeast-2
 
       - name: Upload to S3
-        run: aws s3 sync AutoEmply-client/build s3://autoemply-client --delete
+        run: aws s3 sync AutoEmply-client/dist s3://autoemply-client --delete
 
       - name: Invalidate CloudFront
         run: |
