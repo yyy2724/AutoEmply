@@ -7,6 +7,7 @@ import type { ReportTemplate } from '../types'
 export function useTemplateLibrary() {
   const [templates, setTemplates] = useState<ReportTemplate[]>([])
   const [selectedTemplate, setSelectedTemplate] = useState<ReportTemplate | null>(null)
+  const [activeCategory, setActiveCategory] = useState('all')
   const [searchText, setSearchText] = useState('')
   const [downloadFormName, setDownloadFormName] = useState('')
   const [uploadName, setUploadName] = useState('')
@@ -17,20 +18,24 @@ export function useTemplateLibrary() {
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
 
+  const categories = useMemo(
+    () => [...new Set(templates.map((item) => item.category))],
+    [templates],
+  )
+
   const filteredTemplates = useMemo(() => {
     const keyword = searchText.trim().toLowerCase()
-    if (!keyword) return templates
-    return templates.filter((item) =>
+    const categoryFiltered = activeCategory === 'all'
+      ? templates
+      : templates.filter((item) => item.category === activeCategory)
+
+    if (!keyword) return categoryFiltered
+    return categoryFiltered.filter((item) =>
       [item.name, item.category, item.originalFormName].some((value) =>
         value.toLowerCase().includes(keyword),
       ),
     )
-  }, [searchText, templates])
-
-  const categories = useMemo(
-    () => [...new Set(filteredTemplates.map((item) => item.category))],
-    [filteredTemplates],
-  )
+  }, [activeCategory, searchText, templates])
 
   const loadTemplates = useCallback(async () => {
     try {
@@ -38,19 +43,25 @@ export function useTemplateLibrary() {
       setMessage('')
       const data = await fetchReportTemplates()
       setTemplates(data)
-      if (selectedTemplate) {
-        setSelectedTemplate(data.find((item) => item.id === selectedTemplate.id) ?? null)
-      }
+      setSelectedTemplate((current) =>
+        current ? data.find((item) => item.id === current.id) ?? null : current,
+      )
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '템플릿을 불러오지 못했습니다.')
     } finally {
       setBusy(false)
     }
-  }, [selectedTemplate])
+  }, [])
 
   useEffect(() => {
     void loadTemplates()
   }, [loadTemplates])
+
+  useEffect(() => {
+    if (activeCategory !== 'all' && !categories.includes(activeCategory)) {
+      setActiveCategory('all')
+    }
+  }, [activeCategory, categories])
 
   async function createTemplate() {
     if (!uploadName.trim() || !uploadCategory.trim() || !dfmFile || !pasFile) {
@@ -120,6 +131,7 @@ export function useTemplateLibrary() {
   }
 
   return {
+    activeCategory,
     busy,
     categories,
     dfmFile,
@@ -134,6 +146,7 @@ export function useTemplateLibrary() {
     uploadName,
     setDfmFile,
     setDownloadFormName,
+    setActiveCategory,
     setPasFile,
     setPreviewFile,
     setSearchText,
