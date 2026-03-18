@@ -2,6 +2,7 @@ package health.autoemplyserver.entity;
 
 import java.time.OffsetDateTime;
 import java.util.UUID;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -9,9 +10,15 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import lombok.*;
 
 @Entity
 @Table(name = "prompt_versions")
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class PromptVersion {
 
     @Id
@@ -35,19 +42,4 @@ public class PromptVersion {
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "preset_id", nullable = false)
     private PromptPreset preset;
-
-    public UUID getId() { return id; }
-    public void setId(UUID id) { this.id = id; }
-    public int getVersion() { return version; }
-    public void setVersion(int version) { this.version = version; }
-    public String getSystemPrompt() { return systemPrompt; }
-    public void setSystemPrompt(String systemPrompt) { this.systemPrompt = systemPrompt; }
-    public String getUserPromptTemplate() { return userPromptTemplate; }
-    public void setUserPromptTemplate(String userPromptTemplate) { this.userPromptTemplate = userPromptTemplate; }
-    public String getStyleRulesJson() { return styleRulesJson; }
-    public void setStyleRulesJson(String styleRulesJson) { this.styleRulesJson = styleRulesJson; }
-    public OffsetDateTime getCreatedAt() { return createdAt; }
-    public void setCreatedAt(OffsetDateTime createdAt) { this.createdAt = createdAt; }
-    public PromptPreset getPreset() { return preset; }
-    public void setPreset(PromptPreset preset) { this.preset = preset; }
 }
