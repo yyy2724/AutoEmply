@@ -1,11 +1,6 @@
 import { requestBlob, requestJson } from '../../lib/api'
 import type { AiVersionResponse, LayoutSpec } from '../../types'
 
-function isPdf(file: File | null): boolean {
-  if (!file) return false
-  return file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
-}
-
 export function fetchAiVersion(): Promise<AiVersionResponse> {
   return requestJson<AiVersionResponse>('/api/ai-version')
 }
@@ -21,7 +16,7 @@ export function generateLayoutFromImage(formName: string, file: File, presetId?:
   formData.append('formName', formName.trim())
   formData.append('image', file)
   appendPresetId(formData, presetId)
-  return requestJson<LayoutSpec>(isPdf(file) ? '/api/generate-json-v2' : '/api/generate-json', { method: 'POST', body: formData })
+  return requestJson<LayoutSpec>('/api/generate-json', { method: 'POST', body: formData })
 }
 
 export function exportZipFromImage(formName: string, file: File, presetId?: string | null): Promise<Blob> {
@@ -29,7 +24,7 @@ export function exportZipFromImage(formName: string, file: File, presetId?: stri
   formData.append('formName', formName.trim())
   formData.append('image', file)
   appendPresetId(formData, presetId)
-  return requestBlob(isPdf(file) ? '/api/export-from-image-v2' : '/api/export-from-image', { method: 'POST', body: formData })
+  return requestBlob('/api/export-from-image', { method: 'POST', body: formData })
 }
 
 export function exportZipFromLayout(formName: string, layoutSpec: LayoutSpec): Promise<Blob> {
