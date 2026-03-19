@@ -1,4 +1,4 @@
-import { Alert, Button, Code, FileInput, Grid, Group, List, Select, Stack, Text, TextInput, Textarea } from '@mantine/core'
+import { Alert, Button, Code, FileInput, Grid, Group, List, Stack, Text, TextInput, Textarea } from '@mantine/core'
 import { IconAlertTriangle, IconInfoCircle, IconRefresh } from '@tabler/icons-react'
 import PageSection from '../components/PageSection'
 import { useCreateWorkspace } from '../hooks/useCreateWorkspace'
@@ -9,14 +9,11 @@ function CreatePage() {
     busy,
     formName,
     layoutSpecJson,
-    presets,
-    selectedPresetId,
     status,
     selectedFile,
     setFormName,
     setLayoutSpecJson,
     setSelectedFile,
-    setSelectedPresetId,
     exportFromImage,
     exportFromJson,
     generateJson,
@@ -36,17 +33,6 @@ function CreatePage() {
         <PageSection title="생성" description="파일을 업로드해 LayoutSpec JSON을 만들고 ZIP으로 내보냅니다.">
           <Stack>
             <TextInput label="폼 이름" value={formName} onChange={(event) => setFormName(event.currentTarget.value)} />
-            <Select
-              label="프리셋"
-              placeholder={presets.length > 0 ? '프리셋을 선택하세요' : '활성 프리셋이 없습니다'}
-              data={presets.map((preset) => ({
-                value: preset.id,
-                label: `${preset.name}${preset.active ?? preset.isActive ? ' (active)' : ''}`,
-              }))}
-              value={selectedPresetId}
-              onChange={setSelectedPresetId}
-              disabled={presets.length === 0}
-            />
             <FileInput
               label="파일"
               description="jpg, png, webp, gif, pdf, 최대 5MB"

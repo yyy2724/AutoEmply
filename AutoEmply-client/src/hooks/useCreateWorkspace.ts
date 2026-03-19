@@ -1,10 +1,9 @@
 import { notifications } from '@mantine/notifications'
 import { useEffect, useState } from 'react'
 import { exportZipFromImage, exportZipFromLayout, fetchAiVersion, generateLayoutFromImage } from '../features/create/api'
-import { fetchPresets } from '../features/prompts/api'
 import { ApiRequestError } from '../lib/api'
 import { downloadBlob } from '../lib/download'
-import type { LayoutSpec, PromptPreset, WorkspaceStatus } from '../types'
+import type { LayoutSpec, WorkspaceStatus } from '../types'
 
 const defaultJson = '{\n  "items": []\n}'
 const emptyStatus: WorkspaceStatus = { tone: 'info', title: '', message: '', details: [], retryable: false, retryAction: null }
@@ -16,26 +15,11 @@ export function useCreateWorkspace() {
   const [aiVersion, setAiVersion] = useState('불러오는 중..')
   const [busy, setBusy] = useState(false)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
-  const [presets, setPresets] = useState<PromptPreset[]>([])
-  const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null)
 
   useEffect(() => {
     fetchAiVersion()
       .then((data) => setAiVersion(data?.version ?? '알 수 없음'))
       .catch(() => setAiVersion('확인 불가'))
-  }, [])
-
-  useEffect(() => {
-    fetchPresets()
-      .then((data) => {
-        setPresets(data)
-        const activePreset = data.find((preset) => preset.active ?? preset.isActive)
-        setSelectedPresetId(activePreset?.id ?? data[0]?.id ?? null)
-      })
-      .catch(() => {
-        setPresets([])
-        setSelectedPresetId(null)
-      })
   }, [])
 
   function setInfo(message: string) {
@@ -78,7 +62,7 @@ export function useCreateWorkspace() {
     try {
       setBusy(true)
       setStatus(emptyStatus)
-      const data = await generateLayoutFromImage(formName, selectedFile, selectedPresetId)
+      const data = await generateLayoutFromImage(formName, selectedFile)
       setLayoutSpecJson(JSON.stringify(data, null, 2))
       setInfo('LayoutSpec JSON 생성이 완료되었습니다.')
       notifications.show({ color: 'teal', message: 'LayoutSpec JSON 생성이 완료되었습니다.' })
@@ -98,7 +82,7 @@ export function useCreateWorkspace() {
     try {
       setBusy(true)
       setStatus(emptyStatus)
-      const blob = await exportZipFromImage(formName, selectedFile, selectedPresetId)
+      const blob = await exportZipFromImage(formName, selectedFile)
       downloadBlob(blob, `${formName}.zip`)
       setInfo('이미지 기반 ZIP 내보내기를 시작했습니다.')
       notifications.show({ color: 'teal', message: '이미지 기반 ZIP 내보내기를 시작했습니다.' })
@@ -129,14 +113,11 @@ export function useCreateWorkspace() {
     busy,
     formName,
     layoutSpecJson,
-    presets,
-    selectedPresetId,
     status,
     selectedFile,
     setFormName,
     setLayoutSpecJson,
     setSelectedFile,
-    setSelectedPresetId,
     exportFromImage,
     exportFromJson,
     generateJson,
