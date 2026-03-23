@@ -118,6 +118,8 @@ class ClaudeClientResilienceTest {
             "system",
             "Return JSON for {{formName}}",
             null,
+            java.util.List.of(),
+            null,
             "claude-test",
             BigDecimal.ZERO,
             2048

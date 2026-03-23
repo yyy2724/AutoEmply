@@ -1,4 +1,4 @@
-import { Alert, Button, Code, FileInput, Grid, Group, List, Stack, Text, TextInput, Textarea } from '@mantine/core'
+import { Alert, Button, Code, FileInput, Grid, Group, List, Select, Stack, Text, TextInput, Textarea } from '@mantine/core'
 import { IconAlertTriangle, IconInfoCircle, IconRefresh } from '@tabler/icons-react'
 import PageSection from '../components/PageSection'
 import { useCreateWorkspace } from '../hooks/useCreateWorkspace'
@@ -11,13 +11,29 @@ function CreatePage() {
     layoutSpecJson,
     status,
     selectedFile,
+    presets,
+    sampleSets,
+    selectedPresetId,
+    selectedSampleSetId,
     setFormName,
     setLayoutSpecJson,
     setSelectedFile,
+    setSelectedPresetId,
+    setSelectedSampleSetId,
     exportFromImage,
     exportFromJson,
     generateJson,
   } = useCreateWorkspace()
+
+  const presetOptions = presets.map((preset) => ({
+    value: preset.id,
+    label: `${preset.name}${preset.active ?? preset.isActive ? ' (활성)' : ''}`,
+  }))
+
+  const sampleSetOptions = sampleSets.map((sampleSet) => ({
+    value: sampleSet.id,
+    label: `${sampleSet.name} (${sampleSet.templateIds.length}개)`,
+  }))
 
   const retryHandler = status.retryAction === 'generate-json'
     ? generateJson
@@ -40,6 +56,26 @@ function CreatePage() {
               onChange={setSelectedFile}
               accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,image/jpeg,image/png,image/gif,image/webp,application/pdf"
             />
+            <Group grow>
+              <Select
+                label="언어 프리셋"
+                description="AI 생성에 사용할 프롬프트 프리셋을 선택하세요."
+                data={presetOptions}
+                searchable
+                clearable
+                value={selectedPresetId}
+                onChange={setSelectedPresetId}
+              />
+              <Select
+                label="결과지 프리셋"
+                description="참조할 결과지 파일 묶음을 선택하세요."
+                data={sampleSetOptions}
+                searchable
+                clearable
+                value={selectedSampleSetId}
+                onChange={setSelectedSampleSetId}
+              />
+            </Group>
             <Group>
               <Button onClick={generateJson} loading={busy} color="dark">JSON 생성</Button>
               <Button onClick={exportFromImage} loading={busy} variant="default">ZIP 생성</Button>

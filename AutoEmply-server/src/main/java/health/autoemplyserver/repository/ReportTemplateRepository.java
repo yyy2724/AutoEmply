@@ -8,4 +8,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface ReportTemplateRepository extends JpaRepository<ReportTemplate, UUID> {
 
     List<ReportTemplate> findAllByOrderByCategoryAscNameAsc();
+
+    List<ReportTemplate> findAllByIdIn(List<UUID> ids);
 }

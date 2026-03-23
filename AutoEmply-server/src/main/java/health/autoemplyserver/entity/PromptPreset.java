@@ -1,15 +1,22 @@
 package health.autoemplyserver.entity;
 
-import jakarta.persistence.*;
-import lombok.*;
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.type.SqlTypes;
-
+import jakarta.persistence.CascadeType;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.Id;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 @Entity
 @Table(name = "prompt_presets")
@@ -23,42 +30,38 @@ public class PromptPreset {
     @Id
     private UUID id;
 
-    //프롬프트 이름
     @Column(nullable = false)
     private String name;
 
-    //프롬프트 내용
     @Column(name = "system_prompt", nullable = false, columnDefinition = "text")
     private String systemPrompt;
 
-    //사용자 프롬프트 (사용안함)
     @Column(name = "user_prompt_template", nullable = false, columnDefinition = "text")
     private String userPromptTemplate;
 
-    // 예시 템플릿 (룰 등) (사용안함)
-    @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "style_rules_json", columnDefinition = "jsonb", nullable = true)
+    @Column(name = "style_rules_json", columnDefinition = "text")
     private String styleRulesJson;
 
-    // ai 모덱
+    @Column(name = "sample_template_ids_json", columnDefinition = "text")
+    private String sampleTemplateIdsJson;
+
+    @Column(name = "sample_template_set_id")
+    private UUID sampleTemplateSetId;
+
     private String model;
 
-    // AI 창의성
     private BigDecimal temperature;
 
-    // AI 최대 토큰
     @Column(name = "max_tokens")
     private Integer maxTokens;
 
-    //프리셋 사용/비사용 여부
+    @Builder.Default
     @Column(name = "is_active", nullable = false)
     private boolean active = true;
 
-    //만든시간
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;
 
-    //수정한 시간
     @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt;
 

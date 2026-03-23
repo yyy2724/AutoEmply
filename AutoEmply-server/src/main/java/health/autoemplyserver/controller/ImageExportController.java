@@ -22,13 +22,13 @@ public class ImageExportController {
     }
 
     @PostMapping(path = "/generate-json", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<?> generateJson(@RequestParam String formName, @RequestParam MultipartFile image, @RequestParam(required = false) String presetId) {
-        return ResponseEntity.ok(imageGenerationApplicationService.generateLayout(formName, image, presetId));
+    public ResponseEntity<?> generateJson(@RequestParam String formName, @RequestParam MultipartFile image, @RequestParam(required = false) String presetId, @RequestParam(required = false) String sampleTemplateSetId) {
+        return ResponseEntity.ok(imageGenerationApplicationService.generateLayout(formName, image, presetId, sampleTemplateSetId));
     }
 
     @PostMapping(path = "/export-from-image", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<?> exportFromImage(@RequestParam String formName, @RequestParam MultipartFile image, @RequestParam(required = false) String presetId) {
-        byte[] payload = imageGenerationApplicationService.exportZip(formName, image, presetId);
+    public ResponseEntity<?> exportFromImage(@RequestParam String formName, @RequestParam MultipartFile image, @RequestParam(required = false) String presetId, @RequestParam(required = false) String sampleTemplateSetId) {
+        byte[] payload = imageGenerationApplicationService.exportZip(formName, image, presetId, sampleTemplateSetId);
         return ResponseEntity.ok()
             .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + formName.trim() + ".zip\"")
             .contentType(MediaType.parseMediaType("application/zip"))
@@ -36,18 +36,18 @@ public class ImageExportController {
     }
 
     @PostMapping(path = "/documents/{docId}/generate", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<?> generateDocumentLayout(@PathVariable String docId, @RequestParam String formName, @RequestParam MultipartFile image, @RequestParam(required = false) String presetId) {
-        return ResponseEntity.ok(imageGenerationApplicationService.generateLayout(formName, image, presetId));
+    public ResponseEntity<?> generateDocumentLayout(@PathVariable String docId, @RequestParam String formName, @RequestParam MultipartFile image, @RequestParam(required = false) String presetId, @RequestParam(required = false) String sampleTemplateSetId) {
+        return ResponseEntity.ok(imageGenerationApplicationService.generateLayout(formName, image, presetId, sampleTemplateSetId));
     }
 
     @PostMapping(path = "/generate-json-v2", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<?> generateJsonV2(@RequestParam String formName, @RequestParam MultipartFile image, @RequestParam(required = false) String presetId) {
-        return ResponseEntity.ok(imageGenerationApplicationService.generateLayoutFromStructure(formName, image, presetId));
+    public ResponseEntity<?> generateJsonV2(@RequestParam String formName, @RequestParam MultipartFile image, @RequestParam(required = false) String presetId, @RequestParam(required = false) String sampleTemplateSetId) {
+        return ResponseEntity.ok(imageGenerationApplicationService.generateLayoutFromStructure(formName, image, presetId, sampleTemplateSetId));
     }
 
     @PostMapping(path = "/export-from-image-v2", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<?> exportFromImageV2(@RequestParam String formName, @RequestParam MultipartFile image, @RequestParam(required = false) String presetId) {
-        byte[] payload = imageGenerationApplicationService.exportZipFromStructure(formName, image, presetId);
+    public ResponseEntity<?> exportFromImageV2(@RequestParam String formName, @RequestParam MultipartFile image, @RequestParam(required = false) String presetId, @RequestParam(required = false) String sampleTemplateSetId) {
+        byte[] payload = imageGenerationApplicationService.exportZipFromStructure(formName, image, presetId, sampleTemplateSetId);
         return ResponseEntity.ok()
             .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + formName.trim() + ".zip\"")
             .contentType(MediaType.parseMediaType("application/zip"))
@@ -55,7 +55,7 @@ public class ImageExportController {
     }
 
     @PostMapping(path = "/generate-structure", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<?> generateStructure(@RequestParam String formName, @RequestParam MultipartFile image, @RequestParam(required = false) String presetId) {
-        return ResponseEntity.ok(imageGenerationApplicationService.generateStructure(formName, image, presetId));
+    public ResponseEntity<?> generateStructure(@RequestParam String formName, @RequestParam MultipartFile image, @RequestParam(required = false) String presetId, @RequestParam(required = false) String sampleTemplateSetId) {
+        return ResponseEntity.ok(imageGenerationApplicationService.generateStructure(formName, image, presetId, sampleTemplateSetId));
     }
 }

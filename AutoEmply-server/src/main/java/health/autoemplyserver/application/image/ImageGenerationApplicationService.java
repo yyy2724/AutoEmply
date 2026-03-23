@@ -15,23 +15,23 @@ public class ImageGenerationApplicationService {
         this.imageGenerationService = imageGenerationService;
     }
 
-    public LayoutSpec generateLayout(String formName, MultipartFile image, String presetId) {
-        return imageGenerationService.generateLayoutSpec(formName, image, presetId);
+    public LayoutSpec generateLayout(String formName, MultipartFile image, String presetId, String sampleTemplateSetId) {
+        return imageGenerationService.generateLayoutSpec(formName, image, presetId, sampleTemplateSetId);
     }
 
-    public LayoutSpec generateLayoutFromStructure(String formName, MultipartFile image, String presetId) {
-        return imageGenerationService.generateLayoutSpecFromStructure(formName, image, presetId);
+    public LayoutSpec generateLayoutFromStructure(String formName, MultipartFile image, String presetId, String sampleTemplateSetId) {
+        return imageGenerationService.generateLayoutSpecFromStructure(formName, image, presetId, sampleTemplateSetId);
     }
 
-    public FormStructure generateStructure(String formName, MultipartFile image, String presetId) {
-        return imageGenerationService.generateStructure(formName, image, presetId);
+    public FormStructure generateStructure(String formName, MultipartFile image, String presetId, String sampleTemplateSetId) {
+        return imageGenerationService.generateStructure(formName, image, presetId, sampleTemplateSetId);
     }
 
-    public byte[] exportZip(String formName, MultipartFile image, String presetId) {
-        return imageGenerationService.exportZip(formName, image, presetId);
+    public byte[] exportZip(String formName, MultipartFile image, String presetId, String sampleTemplateSetId) {
+        return imageGenerationService.exportZip(formName, image, presetId, sampleTemplateSetId);
     }
 
-    public byte[] exportZipFromStructure(String formName, MultipartFile image, String presetId) {
-        return imageGenerationService.exportZipFromStructure(formName, image, presetId);
+    public byte[] exportZipFromStructure(String formName, MultipartFile image, String presetId, String sampleTemplateSetId) {
+        return imageGenerationService.exportZipFromStructure(formName, image, presetId, sampleTemplateSetId);
     }
 }

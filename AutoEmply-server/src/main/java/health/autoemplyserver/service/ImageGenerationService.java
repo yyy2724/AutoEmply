@@ -35,31 +35,31 @@ public class ImageGenerationService {
         this.promptPresetResolver = promptPresetResolver;
     }
 
-    public LayoutSpec generateLayoutSpec(String formName, MultipartFile image, String presetId) {
+    public LayoutSpec generateLayoutSpec(String formName, MultipartFile image, String presetId, String sampleTemplateSetId) {
         PreparedVisual visual = uploadedVisualPreparer.prepare(formName, image);
-        ResolvedPromptPreset preset = promptPresetResolver.resolve(presetId);
+        ResolvedPromptPreset preset = promptPresetResolver.resolve(presetId, sampleTemplateSetId);
         LayoutSpec layoutSpec = claudeClient.generateLayoutSpec(visual.formName(), visual.mediaType(), visual.base64Data(), preset);
         return layoutPostProcessor.process(layoutSpec);
     }
 
-    public byte[] exportZip(String formName, MultipartFile image, String presetId) {
-        LayoutSpec layoutSpec = generateLayoutSpec(formName, image, presetId);
+    public byte[] exportZip(String formName, MultipartFile image, String presetId, String sampleTemplateSetId) {
+        LayoutSpec layoutSpec = generateLayoutSpec(formName, image, presetId, sampleTemplateSetId);
         return delphiGenerator.generateZip(formName.trim(), layoutSpec);
     }
 
-    public byte[] exportZipFromStructure(String formName, MultipartFile image, String presetId) {
-        LayoutSpec layoutSpec = generateLayoutSpecFromStructure(formName, image, presetId);
+    public byte[] exportZipFromStructure(String formName, MultipartFile image, String presetId, String sampleTemplateSetId) {
+        LayoutSpec layoutSpec = generateLayoutSpecFromStructure(formName, image, presetId, sampleTemplateSetId);
         return delphiGenerator.generateZip(formName.trim(), layoutSpec);
     }
 
-    public FormStructure generateStructure(String formName, MultipartFile image, String presetId) {
+    public FormStructure generateStructure(String formName, MultipartFile image, String presetId, String sampleTemplateSetId) {
         PreparedVisual visual = uploadedVisualPreparer.prepare(formName, image);
-        ResolvedPromptPreset preset = promptPresetResolver.resolve(presetId);
+        ResolvedPromptPreset preset = promptPresetResolver.resolve(presetId, sampleTemplateSetId);
         return claudeClient.generateFormStructure(visual.formName(), visual.mediaType(), visual.base64Data(), preset);
     }
 
-    public LayoutSpec generateLayoutSpecFromStructure(String formName, MultipartFile image, String presetId) {
-        FormStructure structure = generateStructure(formName, image, presetId);
+    public LayoutSpec generateLayoutSpecFromStructure(String formName, MultipartFile image, String presetId, String sampleTemplateSetId) {
+        FormStructure structure = generateStructure(formName, image, presetId, sampleTemplateSetId);
         return layoutPostProcessor.process(structureToLayoutConverter.convert(structure));
     }
 }

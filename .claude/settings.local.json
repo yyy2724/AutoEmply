@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs grep:*)",
+      "Bash(find C:Usersyyy27DesktopOUTProjectAutoEmply -name *.md -o -name README*)",
+      "Bash(npx tsc:*)"
+    ]
+  }
+}

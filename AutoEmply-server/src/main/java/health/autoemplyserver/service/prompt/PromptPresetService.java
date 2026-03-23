@@ -3,15 +3,22 @@ package health.autoemplyserver.service.prompt;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import health.autoemplyserver.dto.prompt.CreatePromptPresetRequest;
 import health.autoemplyserver.dto.prompt.PromptPresetDto;
+import health.autoemplyserver.entity.ReportTemplate;
 import health.autoemplyserver.dto.prompt.UpdatePromptPresetRequest;
 import health.autoemplyserver.entity.PromptPreset;
 import health.autoemplyserver.entity.PromptVersion;
 import health.autoemplyserver.repository.PromptPresetRepository;
+import health.autoemplyserver.repository.ReportTemplateRepository;
+import health.autoemplyserver.service.sample.SampleTemplateSetService;
 import health.autoemplyserver.support.exception.BadRequestException;
 import health.autoemplyserver.support.exception.NotFoundException;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -24,8 +31,11 @@ public class PromptPresetService {
     private static final String DEFAULT_MODEL = "claude-sonnet-4-6";
     private static final BigDecimal DEFAULT_TEMPERATURE = BigDecimal.ZERO;
     private static final int DEFAULT_MAX_TOKENS = 32000;
+    private static final int MAX_SAMPLE_TEMPLATES = 3;
 
     private final PromptPresetRepository promptPresetRepository;
+    private final ReportTemplateRepository reportTemplateRepository;
+    private final SampleTemplateSetService sampleTemplateSetService;
     private final ObjectMapper objectMapper;
 
     @Value("${app.ai.model:" + DEFAULT_MODEL + "}")
@@ -33,9 +43,13 @@ public class PromptPresetService {
 
     public PromptPresetService(
         PromptPresetRepository promptPresetRepository,
+        ReportTemplateRepository reportTemplateRepository,
+        SampleTemplateSetService sampleTemplateSetService,
         ObjectMapper objectMapper
     ) {
         this.promptPresetRepository = promptPresetRepository;
+        this.reportTemplateRepository = reportTemplateRepository;
+        this.sampleTemplateSetService = sampleTemplateSetService;
         this.objectMapper = objectMapper;
     }
 
@@ -45,7 +59,13 @@ public class PromptPresetService {
     }
 
     public PromptPresetDto create(CreatePromptPresetRequest request) {
-        validateRequest(request.name(), request.systemPrompt(), request.userPromptTemplate(), request.styleRulesJson());
+        validateRequest(
+            request.name(),
+            request.systemPrompt(),
+            request.userPromptTemplate(),
+            request.styleRulesJson(),
+            request.sampleTemplateIds()
+        );
         OffsetDateTime now = OffsetDateTime.now();
 
         PromptPreset preset = new PromptPreset();
@@ -54,6 +74,8 @@ public class PromptPresetService {
         preset.setSystemPrompt(request.systemPrompt().trim());
         preset.setUserPromptTemplate(request.userPromptTemplate().trim());
         preset.setStyleRulesJson(normalizeNullable(request.styleRulesJson()));
+        preset.setSampleTemplateIdsJson(serializeSampleTemplateIds(request.sampleTemplateIds()));
+        preset.setSampleTemplateSetId(null);
         preset.setModel(normalizeNullable(request.model()));
         preset.setTemperature(request.temperature());
         preset.setMaxTokens(request.maxTokens());
@@ -67,13 +89,21 @@ public class PromptPresetService {
     }
 
     public PromptPresetDto update(UUID id, UpdatePromptPresetRequest request) {
-        validateRequest(request.name(), request.systemPrompt(), request.userPromptTemplate(), request.styleRulesJson());
+        validateRequest(
+            request.name(),
+            request.systemPrompt(),
+            request.userPromptTemplate(),
+            request.styleRulesJson(),
+            request.sampleTemplateIds()
+        );
         PromptPreset preset = promptPresetRepository.findById(id).orElseThrow(() -> new NotFoundException("Preset not found."));
 
         preset.setName(request.name().trim());
         preset.setSystemPrompt(request.systemPrompt().trim());
         preset.setUserPromptTemplate(request.userPromptTemplate().trim());
         preset.setStyleRulesJson(normalizeNullable(request.styleRulesJson()));
+        preset.setSampleTemplateIdsJson(serializeSampleTemplateIds(request.sampleTemplateIds()));
+        preset.setSampleTemplateSetId(null);
         preset.setModel(normalizeNullable(request.model()));
         preset.setTemperature(request.temperature());
         preset.setMaxTokens(request.maxTokens());
@@ -93,33 +123,51 @@ public class PromptPresetService {
     }
 
     @Transactional(readOnly = true)
-    public ResolvedPromptPreset resolve(UUID presetId) {
+    public ResolvedPromptPreset resolve(UUID presetId, UUID sampleTemplateSetId) {
+        PromptPreset primary;
+        List<PromptPreset> references;
+
         if (presetId != null) {
-            PromptPreset preset = promptPresetRepository.findById(presetId).orElse(null);
-            if (preset == null) {
+            primary = promptPresetRepository.findById(presetId).orElse(null);
+            if (primary == null) {
                 return null;
             }
-            return mergePreset(preset, promptPresetRepository.findByActiveTrueAndIdNotOrderByUpdatedAtDesc(preset.getId()));
+            references = promptPresetRepository.findByActiveTrueAndIdNotOrderByUpdatedAtDesc(primary.getId());
+        } else {
+            List<PromptPreset> activePresets = promptPresetRepository.findByActiveTrueOrderByUpdatedAtDesc();
+            if (activePresets.isEmpty()) {
+                return null;
+            }
+            primary = activePresets.getFirst();
+            references = activePresets.stream().skip(1).toList();
         }
 
-        List<PromptPreset> activePresets = promptPresetRepository.findByActiveTrueOrderByUpdatedAtDesc();
-        if (activePresets.isEmpty()) {
-            return null;
-        }
-        return mergePreset(activePresets.getFirst(), activePresets.stream().skip(1).toList());
+        List<UUID> sampleTemplateIds = resolveSampleTemplateIds(sampleTemplateSetId);
+        return mergePreset(primary, references, sampleTemplateIds);
     }
 
-    private ResolvedPromptPreset mergePreset(PromptPreset primary, List<PromptPreset> references) {
+    private ResolvedPromptPreset mergePreset(PromptPreset primary, List<PromptPreset> references, List<UUID> sampleTemplateIds) {
         return new ResolvedPromptPreset(
             primary.getId(),
             primary.getName(),
-            buildPromptWithReferences(primary.getSystemPrompt(), references.stream().map(PromptPreset::getSystemPrompt).toList(), "PastPromptReference"),
+            appendSampleTemplateReferences(
+                buildPromptWithReferences(primary.getSystemPrompt(), references.stream().map(PromptPreset::getSystemPrompt).toList(), "PastPromptReference"),
+                sampleTemplateIds
+            ),
             buildPromptWithReferences(primary.getUserPromptTemplate(), references.stream().map(PromptPreset::getUserPromptTemplate).toList(), "PastUserPromptReference"),
             primary.getStyleRulesJson(),
+            sampleTemplateIds,
             primary.getModel() == null || primary.getModel().isBlank() ? configuredModel : primary.getModel().trim(),
             primary.getTemperature() == null ? DEFAULT_TEMPERATURE : primary.getTemperature(),
             primary.getMaxTokens() == null ? DEFAULT_MAX_TOKENS : primary.getMaxTokens()
         );
+    }
+
+    private List<UUID> resolveSampleTemplateIds(UUID sampleTemplateSetId) {
+        if (sampleTemplateSetId == null) {
+            return List.of();
+        }
+        return sampleTemplateSetService.parseTemplateIds(sampleTemplateSetService.getEntity(sampleTemplateSetId));
     }
 
     private String buildPromptWithReferences(String primary, List<String> references, String sectionTitle) {
@@ -152,7 +200,13 @@ public class PromptPresetService {
         preset.getVersions().add(promptVersion);
     }
 
-    private void validateRequest(String name, String systemPrompt, String userPromptTemplate, String styleRulesJson) {
+    private void validateRequest(
+        String name,
+        String systemPrompt,
+        String userPromptTemplate,
+        String styleRulesJson,
+        List<UUID> sampleTemplateIds
+    ) {
         if (name == null || name.isBlank()) {
             throw new BadRequestException("name is required.");
         }
@@ -169,10 +223,106 @@ public class PromptPresetService {
                 throw new BadRequestException("styleRulesJson is not valid JSON.");
             }
         }
+        validateSampleTemplateIds(sampleTemplateIds);
     }
 
     private String normalizeNullable(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private void validateSampleTemplateIds(List<UUID> sampleTemplateIds) {
+        List<UUID> normalized = normalizeSampleTemplateIds(sampleTemplateIds);
+        if (normalized.size() > MAX_SAMPLE_TEMPLATES) {
+            throw new BadRequestException("sampleTemplateIds can contain up to 3 templates.");
+        }
+        if (normalized.isEmpty()) {
+            return;
+        }
+        List<UUID> existingIds = reportTemplateRepository.findAllByIdIn(normalized).stream()
+            .map(ReportTemplate::getId)
+            .toList();
+        if (existingIds.size() != normalized.size()) {
+            throw new BadRequestException("sampleTemplateIds contains unknown template ids.");
+        }
+    }
+
+    private String serializeSampleTemplateIds(List<UUID> sampleTemplateIds) {
+        List<UUID> normalized = normalizeSampleTemplateIds(sampleTemplateIds);
+        if (normalized.isEmpty()) {
+            return null;
+        }
+        try {
+            return objectMapper.writeValueAsString(normalized);
+        } catch (Exception exception) {
+            throw new IllegalStateException("Failed to serialize sample template ids.", exception);
+        }
+    }
+
+    private List<UUID> parseSampleTemplateIds(String json) {
+        if (json == null || json.isBlank()) {
+            return List.of();
+        }
+        try {
+            UUID[] values = objectMapper.readValue(json, UUID[].class);
+            return normalizeSampleTemplateIds(Arrays.asList(values));
+        } catch (Exception exception) {
+            throw new IllegalStateException("Failed to parse sample template ids.", exception);
+        }
+    }
+
+    private List<UUID> normalizeSampleTemplateIds(List<UUID> sampleTemplateIds) {
+        if (sampleTemplateIds == null || sampleTemplateIds.isEmpty()) {
+            return List.of();
+        }
+        return sampleTemplateIds.stream()
+            .filter(Objects::nonNull)
+            .distinct()
+            .limit(MAX_SAMPLE_TEMPLATES + 1L)
+            .toList();
+    }
+
+    private String appendSampleTemplateReferences(String prompt, List<UUID> sampleTemplateIds) {
+        if (sampleTemplateIds.isEmpty()) {
+            return prompt == null ? "" : prompt.trim();
+        }
+
+        List<ReportTemplate> templates = loadTemplatesInOrder(sampleTemplateIds);
+        if (templates.isEmpty()) {
+            return prompt == null ? "" : prompt.trim();
+        }
+
+        StringBuilder builder = new StringBuilder(prompt == null ? "" : prompt.trim());
+        builder.append("\n\nDelphiSampleReferences:\n")
+            .append("Use these uploaded sample files as formatting references for Delphi DFM/PAS structure. ")
+            .append("Follow their uses/type/var spacing and declaration comment style when applicable.\n");
+
+        for (int index = 0; index < templates.size(); index++) {
+            ReportTemplate template = templates.get(index);
+            builder.append('\n')
+                .append("[Sample ").append(index + 1).append("]\n")
+                .append("Name: ").append(template.getName()).append('\n')
+                .append("Category: ").append(template.getCategory()).append('\n')
+                .append("OriginalFormName: ").append(template.getOriginalFormName()).append('\n')
+                .append("PAS:\n")
+                .append(template.getPasContent().trim()).append('\n')
+                .append("DFM:\n")
+                .append(template.getDfmContent().trim()).append('\n');
+        }
+
+        return builder.toString().trim();
+    }
+
+    private List<ReportTemplate> loadTemplatesInOrder(List<UUID> sampleTemplateIds) {
+        Map<UUID, ReportTemplate> templatesById = reportTemplateRepository.findAllByIdIn(sampleTemplateIds).stream()
+            .collect(java.util.stream.Collectors.toMap(ReportTemplate::getId, template -> template));
+        List<ReportTemplate> ordered = new ArrayList<>();
+        for (UUID id : sampleTemplateIds) {
+            ReportTemplate template = templatesById.get(id);
+            if (template != null) {
+                ordered.add(template);
+            }
+        }
+        return ordered;
     }
 
     private PromptPresetDto toDto(PromptPreset preset) {
@@ -182,6 +332,7 @@ public class PromptPresetService {
             preset.getSystemPrompt(),
             preset.getUserPromptTemplate(),
             preset.getStyleRulesJson(),
+            parseSampleTemplateIds(preset.getSampleTemplateIdsJson()),
             preset.getModel(),
             preset.getTemperature(),
             preset.getMaxTokens(),

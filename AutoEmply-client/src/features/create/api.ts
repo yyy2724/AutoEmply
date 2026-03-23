@@ -5,17 +5,21 @@ export function fetchAiVersion(): Promise<AiVersionResponse> {
   return requestJson<AiVersionResponse>('/api/ai-version')
 }
 
-export function generateLayoutFromImage(formName: string, file: File): Promise<LayoutSpec> {
+export function generateLayoutFromImage(formName: string, file: File, presetId?: string | null, sampleTemplateSetId?: string | null): Promise<LayoutSpec> {
   const formData = new FormData()
   formData.append('formName', formName.trim())
   formData.append('image', file)
+  if (presetId) formData.append('presetId', presetId)
+  if (sampleTemplateSetId) formData.append('sampleTemplateSetId', sampleTemplateSetId)
   return requestJson<LayoutSpec>('/api/generate-json', { method: 'POST', body: formData })
 }
 
-export function exportZipFromImage(formName: string, file: File): Promise<Blob> {
+export function exportZipFromImage(formName: string, file: File, presetId?: string | null, sampleTemplateSetId?: string | null): Promise<Blob> {
   const formData = new FormData()
   formData.append('formName', formName.trim())
   formData.append('image', file)
+  if (presetId) formData.append('presetId', presetId)
+  if (sampleTemplateSetId) formData.append('sampleTemplateSetId', sampleTemplateSetId)
   return requestBlob('/api/export-from-image', { method: 'POST', body: formData })
 }
 

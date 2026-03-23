@@ -12,6 +12,7 @@ export type PromptPreset = {
   systemPrompt: string
   userPromptTemplate: string
   styleRulesJson?: string | null
+  sampleTemplateIds?: string[]
   model?: string | null
   temperature?: number | null
   maxTokens?: number | null
@@ -26,10 +27,24 @@ export type PromptPresetForm = {
   systemPrompt: string
   userPromptTemplate: string
   styleRulesJson: string
+  sampleTemplateIds: string[]
   model: string
   temperature: number
   maxTokens: number
   isActive: boolean
+}
+
+export type SampleTemplateSet = {
+  id: string
+  name: string
+  templateIds: string[]
+  createdAt: string
+  updatedAt: string
+}
+
+export type SampleTemplateSetForm = {
+  name: string
+  templateIds: string[]
 }
 
 export type LayoutItem = {

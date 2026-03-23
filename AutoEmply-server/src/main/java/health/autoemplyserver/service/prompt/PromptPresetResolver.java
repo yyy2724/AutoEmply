@@ -14,23 +14,24 @@ public class PromptPresetResolver {
         this.promptPresetService = promptPresetService;
     }
 
-    public ResolvedPromptPreset resolve(String presetId) {
-        UUID id = parsePresetId(presetId);
-        ResolvedPromptPreset preset = promptPresetService.resolve(id);
+    public ResolvedPromptPreset resolve(String presetId, String sampleTemplateSetId) {
+        UUID parsedPresetId = parseUuid(presetId, "presetId");
+        UUID parsedSetId = parseUuid(sampleTemplateSetId, "sampleTemplateSetId");
+        ResolvedPromptPreset preset = promptPresetService.resolve(parsedPresetId, parsedSetId);
         if (preset == null) {
             throw new NotFoundException("Prompt preset not found.");
         }
         return preset;
     }
 
-    private UUID parsePresetId(String presetId) {
-        if (presetId == null || presetId.isBlank()) {
+    private UUID parseUuid(String value, String fieldName) {
+        if (value == null || value.isBlank()) {
             return null;
         }
         try {
-            return UUID.fromString(presetId.trim());
+            return UUID.fromString(value.trim());
         } catch (IllegalArgumentException exception) {
-            throw new BadRequestException("presetId is not a valid UUID.");
+            throw new BadRequestException(fieldName + " is not a valid UUID.");
         }
     }
 }
