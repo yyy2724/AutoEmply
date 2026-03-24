@@ -42,7 +42,7 @@ public class DelphiPasWriter {
 
         // event handler declarations in published section (before private)
         for (EventHandler handler : eventHandlers) {
-            builder.append("    procedure ").append(handler.name()).append("(Sender: TObject);\n");
+            builder.append("    ").append(buildEventDeclaration(handler.name())).append('\n');
         }
 
         builder.append("  private\n");
@@ -69,12 +69,9 @@ public class DelphiPasWriter {
 
         // event handler implementations
         for (EventHandler handler : eventHandlers) {
-            builder.append("procedure T").append(className).append('.').append(handler.name()).append("(Sender: TObject);\n");
-            builder.append("begin\n");
-            for (String line : handler.body()) {
-                builder.append(line.isBlank() ? "" : "  " + line).append('\n');
-            }
-            builder.append("end;\n\n");
+            builder.append(formatter.buildImplementationDeclaration(buildEventDeclaration(handler.name()), className)).append('\n');
+            appendMethodBody(builder, handler.body());
+            builder.append('\n');
         }
 
         // remaining methods (non-event)
@@ -82,11 +79,8 @@ public class DelphiPasWriter {
             if (eventHandlers.stream().noneMatch(eh -> eh.methodKey().equals(entry.getKey()))) {
                 NormalizedMethod method = entry.getValue();
                 builder.append(formatter.buildImplementationDeclaration(method.declaration(), className)).append('\n');
-                builder.append("begin\n");
-                for (String line : method.body()) {
-                    builder.append(line.isBlank() ? "" : "  " + line).append('\n');
-                }
-                builder.append("end;\n\n");
+                appendMethodBody(builder, method.body());
+                builder.append('\n');
             }
         }
 
@@ -145,36 +139,7 @@ public class DelphiPasWriter {
                 continue;
             }
 
-            List<String> rawLines = new ArrayList<>();
-            List<String> sourceBody = method.getBody() == null ? List.of() : method.getBody();
-            for (String line : sourceBody) {
-                String raw = Objects.toString(line, "");
-                String trimmed = raw.trim();
-                if (trimmed.equalsIgnoreCase("begin")
-                    || trimmed.equalsIgnoreCase("end")
-                    || trimmed.equalsIgnoreCase("end;")) {
-                    continue;
-                }
-                if (!trimmed.isEmpty()) {
-                    rawLines.add(raw);
-                }
-            }
-            List<String> body;
-            if (rawLines.isEmpty()) {
-                body = List.of("// TODO");
-            } else {
-                // preserve relative indentation from AI
-                int minIndent = rawLines.stream()
-                    .filter(l -> !l.trim().isEmpty())
-                    .mapToInt(this::leadingSpaces)
-                    .min().orElse(0);
-                body = rawLines.stream()
-                    .map(l -> {
-                        int strip = Math.min(minIndent, leadingSpaces(l));
-                        return l.substring(strip);
-                    })
-                    .toList();
-            }
+            MethodBody body = normalizeMethodBody(method.getBody());
 
             String key = extractMethodName(declaration).toLowerCase();
             map.put(key, new NormalizedMethod(declaration, body));
@@ -193,11 +158,11 @@ public class DelphiPasWriter {
 
             // find matching AI-provided method body
             NormalizedMethod matched = methodMap.get(key);
-            List<String> body;
+            MethodBody body;
             if (matched != null) {
                 body = matched.body();
             } else {
-                body = List.of("// TODO");
+                body = MethodBody.todo();
             }
 
             handlers.add(new EventHandler(handlerName, key, component.name(), body));
@@ -253,9 +218,167 @@ public class DelphiPasWriter {
         return formatter.ensureSemicolon(result);
     }
 
-    private record NormalizedMethod(String declaration, List<String> body) {
+    private String buildEventDeclaration(String handlerName) {
+        return "procedure " + handlerName + "(Sender: TObject; var Value: String);";
     }
 
-    private record EventHandler(String name, String methodKey, String componentName, List<String> body) {
+    private void appendMethodBody(StringBuilder builder, MethodBody body) {
+        for (String line : body.declarations()) {
+            builder.append(line).append('\n');
+        }
+        builder.append("begin\n");
+        for (String line : body.statements()) {
+            builder.append(line.isBlank() ? "" : "  " + line).append('\n');
+        }
+        builder.append("end;\n");
+    }
+
+    private MethodBody normalizeMethodBody(List<String> sourceBody) {
+        List<String> lines = new ArrayList<>();
+        for (String line : sourceBody == null ? List.<String>of() : sourceBody) {
+            lines.add(Objects.toString(line, ""));
+        }
+
+        int firstContent = firstContentIndex(lines);
+        if (firstContent < 0) {
+            return MethodBody.todo();
+        }
+
+        int lastContent = lastContentIndex(lines);
+        int beginIndex = findStandaloneBegin(lines, firstContent, lastContent);
+        if (beginIndex >= 0 && isStandaloneEnd(lines.get(lastContent))) {
+            List<String> declarations = normalizeIndentedLines(lines.subList(0, beginIndex));
+            List<String> statements = normalizeIndentedLines(lines.subList(beginIndex + 1, lastContent));
+            return new MethodBody(
+                declarations,
+                statements.isEmpty() ? List.of("// TODO") : statements
+            );
+        }
+
+        List<String> trimmed = trimBlankEdges(lines);
+        List<String> declarations = new ArrayList<>();
+        int index = collectLeadingDeclarations(trimmed, declarations);
+        List<String> statements = normalizeIndentedLines(trimmed.subList(index, trimmed.size()));
+        return new MethodBody(
+            normalizeIndentedLines(declarations),
+            statements.isEmpty() ? List.of("// TODO") : statements
+        );
+    }
+
+    private int collectLeadingDeclarations(List<String> lines, List<String> declarations) {
+        int index = 0;
+        while (index < lines.size()) {
+            String trimmed = lines.get(index).trim();
+            if (trimmed.isEmpty() || isCommentLine(trimmed)) {
+                declarations.add(lines.get(index));
+                index++;
+                continue;
+            }
+            if (trimmed.equalsIgnoreCase("var")) {
+                declarations.add(lines.get(index++));
+                while (index < lines.size()) {
+                    String declarationLine = lines.get(index);
+                    String declarationTrimmed = declarationLine.trim();
+                    if (declarationTrimmed.isEmpty() || isCommentLine(declarationTrimmed) || looksLikeVariableDeclaration(declarationTrimmed)) {
+                        declarations.add(declarationLine);
+                        index++;
+                        continue;
+                    }
+                    return index;
+                }
+                return index;
+            }
+            return index;
+        }
+        return index;
+    }
+
+    private boolean looksLikeVariableDeclaration(String line) {
+        if (!line.endsWith(";")) {
+            return false;
+        }
+        if (line.contains(":=") || line.contains("=")) {
+            return false;
+        }
+        return line.contains(":");
+    }
+
+    private boolean isCommentLine(String line) {
+        return line.startsWith("//") || line.startsWith("{") || line.startsWith("(*");
+    }
+
+    private int findStandaloneBegin(List<String> lines, int from, int to) {
+        for (int index = from; index <= to; index++) {
+            if (lines.get(index).trim().equalsIgnoreCase("begin")) {
+                return index;
+            }
+        }
+        return -1;
+    }
+
+    private boolean isStandaloneEnd(String line) {
+        String trimmed = line.trim();
+        return trimmed.equalsIgnoreCase("end") || trimmed.equalsIgnoreCase("end;");
+    }
+
+    private int firstContentIndex(List<String> lines) {
+        for (int index = 0; index < lines.size(); index++) {
+            if (!lines.get(index).trim().isEmpty()) {
+                return index;
+            }
+        }
+        return -1;
+    }
+
+    private int lastContentIndex(List<String> lines) {
+        for (int index = lines.size() - 1; index >= 0; index--) {
+            if (!lines.get(index).trim().isEmpty()) {
+                return index;
+            }
+        }
+        return -1;
+    }
+
+    private List<String> trimBlankEdges(List<String> lines) {
+        int start = firstContentIndex(lines);
+        if (start < 0) {
+            return List.of();
+        }
+        int end = lastContentIndex(lines);
+        return new ArrayList<>(lines.subList(start, end + 1));
+    }
+
+    private List<String> normalizeIndentedLines(List<String> lines) {
+        List<String> trimmed = trimBlankEdges(lines);
+        if (trimmed.isEmpty()) {
+            return List.of();
+        }
+        int minIndent = trimmed.stream()
+            .filter(line -> !line.trim().isEmpty())
+            .mapToInt(this::leadingSpaces)
+            .min()
+            .orElse(0);
+        return trimmed.stream()
+            .map(line -> {
+                if (line.trim().isEmpty()) {
+                    return "";
+                }
+                int strip = Math.min(minIndent, leadingSpaces(line));
+                return line.substring(strip);
+            })
+            .toList();
+    }
+
+    private record NormalizedMethod(String declaration, MethodBody body) {
+    }
+
+    private record EventHandler(String name, String methodKey, String componentName, MethodBody body) {
+    }
+
+    private record MethodBody(List<String> declarations, List<String> statements) {
+
+        private static MethodBody todo() {
+            return new MethodBody(List.of(), List.of("// TODO"));
+        }
     }
 }

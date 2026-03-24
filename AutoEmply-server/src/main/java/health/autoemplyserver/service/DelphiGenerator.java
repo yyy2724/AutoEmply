@@ -329,7 +329,7 @@ public class DelphiGenerator {
 
     private void writeEntry(ZipOutputStream zipOutputStream, String name, String content) throws IOException {
         zipOutputStream.putNextEntry(new ZipEntry(name));
-        OutputStreamWriter writer = new OutputStreamWriter(zipOutputStream, StandardCharsets.US_ASCII);
+        OutputStreamWriter writer = new OutputStreamWriter(zipOutputStream, StandardCharsets.UTF_8);
         writer.write(content);
         writer.flush();
         zipOutputStream.closeEntry();
