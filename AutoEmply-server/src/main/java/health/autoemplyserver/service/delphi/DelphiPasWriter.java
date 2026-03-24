@@ -145,19 +145,35 @@ public class DelphiPasWriter {
                 continue;
             }
 
-            List<String> body = new ArrayList<>();
+            List<String> rawLines = new ArrayList<>();
             List<String> sourceBody = method.getBody() == null ? List.of() : method.getBody();
             for (String line : sourceBody) {
-                String trimmed = Objects.toString(line, "").trim();
+                String raw = Objects.toString(line, "");
+                String trimmed = raw.trim();
                 if (trimmed.equalsIgnoreCase("begin")
                     || trimmed.equalsIgnoreCase("end")
                     || trimmed.equalsIgnoreCase("end;")) {
                     continue;
                 }
-                body.add(trimmed);
+                if (!trimmed.isEmpty()) {
+                    rawLines.add(raw);
+                }
             }
-            if (body.isEmpty()) {
-                body.add("// TODO");
+            List<String> body;
+            if (rawLines.isEmpty()) {
+                body = List.of("// TODO");
+            } else {
+                // preserve relative indentation from AI
+                int minIndent = rawLines.stream()
+                    .filter(l -> !l.trim().isEmpty())
+                    .mapToInt(this::leadingSpaces)
+                    .min().orElse(0);
+                body = rawLines.stream()
+                    .map(l -> {
+                        int strip = Math.min(minIndent, leadingSpaces(l));
+                        return l.substring(strip);
+                    })
+                    .toList();
             }
 
             String key = extractMethodName(declaration).toLowerCase();
@@ -215,6 +231,15 @@ public class DelphiPasWriter {
             clean = clean.substring(0, colonIndex).trim();
         }
         return clean;
+    }
+
+    private int leadingSpaces(String line) {
+        int count = 0;
+        for (char c : line.toCharArray()) {
+            if (c == ' ') count++;
+            else break;
+        }
+        return count;
     }
 
     private String stripClassPrefix(String declaration, String className) {
