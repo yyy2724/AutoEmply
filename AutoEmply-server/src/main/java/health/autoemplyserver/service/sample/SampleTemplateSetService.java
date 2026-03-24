@@ -58,6 +58,7 @@ public class SampleTemplateSetService {
             .id(UUID.randomUUID())
             .name(request.name().trim())
             .templateIdsJson(serializeTemplateIds(templateIds))
+            .active(request.isActive())
             .createdAt(now)
             .updatedAt(now)
             .build();
@@ -71,6 +72,7 @@ public class SampleTemplateSetService {
         SampleTemplateSet sampleTemplateSet = getEntity(id);
         sampleTemplateSet.setName(request.name().trim());
         sampleTemplateSet.setTemplateIdsJson(serializeTemplateIds(templateIds));
+        sampleTemplateSet.setActive(request.isActive());
         sampleTemplateSet.setUpdatedAt(OffsetDateTime.now());
         return toDto(sampleTemplateSet);
     }
@@ -138,6 +140,7 @@ public class SampleTemplateSetService {
             sampleTemplateSet.getId(),
             sampleTemplateSet.getName(),
             parseTemplateIds(sampleTemplateSet),
+            sampleTemplateSet.isActive(),
             sampleTemplateSet.getCreatedAt(),
             sampleTemplateSet.getUpdatedAt()
         );

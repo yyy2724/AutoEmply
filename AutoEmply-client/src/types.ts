@@ -38,6 +38,8 @@ export type SampleTemplateSet = {
   id: string
   name: string
   templateIds: string[]
+  active?: boolean
+  isActive?: boolean
   createdAt: string
   updatedAt: string
 }
@@ -45,6 +47,7 @@ export type SampleTemplateSet = {
 export type SampleTemplateSetForm = {
   name: string
   templateIds: string[]
+  isActive: boolean
 }
 
 export type LayoutItem = {

@@ -83,33 +83,35 @@ function PresetsPage() {
     label: `${template.name} [${template.category}]`,
   }))
 
+  const activeSampleSetCount = sampleSets.filter((sampleSet) => sampleSet.active ?? sampleSet.isActive).length
+
   return (
     <Tabs defaultValue="language-presets">
       <Tabs.List>
-        <Tabs.Tab value="language-presets">언어 프리셋</Tabs.Tab>
-        <Tabs.Tab value="report-presets">결과지 프리셋</Tabs.Tab>
+        <Tabs.Tab value="language-presets">Language presets</Tabs.Tab>
+        <Tabs.Tab value="report-presets">Report presets</Tabs.Tab>
       </Tabs.List>
 
       <Tabs.Panel value="language-presets" pt="md">
         <Grid gutter="lg">
           <Grid.Col span={{ base: 12, lg: 5 }}>
-            <PageSection title="프리셋 목록" description={`전체 ${presets.length}개 / 활성 ${activeCount}개`}>
+            <PageSection title="Preset list" description={`Total ${presets.length} / Active ${activeCount}`}>
               <Stack>
                 <Group justify="space-between">
                   <Text size="sm" c="dimmed" ff="JetBrains Mono, D2Coding, Consolas, monospace">
-                    프리셋 선택
+                    Language preset selection
                   </Text>
                   <Button variant="default" styles={mutedButtonStyles} onClick={() => void loadPresets()} loading={busy}>
-                    새로고침
+                    Reload
                   </Button>
                 </Group>
                 <ScrollArea h={520}>
                   <Table stickyHeader highlightOnHover>
                     <Table.Thead>
                       <Table.Tr>
-                        <Table.Th>이름</Table.Th>
-                        <Table.Th>상태</Table.Th>
-                        <Table.Th>수정일</Table.Th>
+                        <Table.Th>Name</Table.Th>
+                        <Table.Th>Status</Table.Th>
+                        <Table.Th>Updated</Table.Th>
                       </Table.Tr>
                     </Table.Thead>
                     <Table.Tbody>
@@ -123,7 +125,7 @@ function PresetsPage() {
                           }}
                         >
                           <Table.Td>{preset.name}</Table.Td>
-                          <Table.Td>{preset.active ?? preset.isActive ? '활성' : '비활성'}</Table.Td>
+                          <Table.Td>{preset.active ?? preset.isActive ? 'Active' : 'Inactive'}</Table.Td>
                           <Table.Td>{new Date(preset.updatedAt).toLocaleString()}</Table.Td>
                         </Table.Tr>
                       ))}
@@ -135,32 +137,32 @@ function PresetsPage() {
           </Grid.Col>
 
           <Grid.Col span={{ base: 12, lg: 7 }}>
-            <PageSection title={editingId ? '프리셋 수정' : '프리셋 생성'}>
+            <PageSection title={editingId ? 'Edit language preset' : 'Create language preset'}>
               <Stack>
                 <Group justify="space-between">
                   <Badge color="gray" variant="light" radius="sm">
-                    {editingId ? '수정 모드' : '생성 모드'}
+                    {editingId ? 'Edit mode' : 'Create mode'}
                   </Badge>
                   <Text size="sm" c="#7f8794" ff="JetBrains Mono, D2Coding, Consolas, monospace">
-                    {editingId ? editingId.slice(0, 8) : '신규'}
+                    {editingId ? editingId.slice(0, 8) : 'new'}
                   </Text>
                 </Group>
                 <Group grow>
                   <TextInput
-                    label="프리셋 이름"
+                    label="Preset name"
                     styles={monoLabelStyles}
                     value={form.name}
                     onChange={(event) => setForm((current) => ({ ...current, name: event.currentTarget.value }))}
                   />
                   <TextInput
-                    label="모델"
+                    label="Model"
                     styles={monoLabelStyles}
                     value={form.model}
                     onChange={(event) => setForm((current) => ({ ...current, model: event.currentTarget.value }))}
                   />
                 </Group>
                 <Textarea
-                  label="시스템 프롬프트"
+                  label="System prompt"
                   styles={monoLabelStyles}
                   minRows={8}
                   autosize
@@ -168,7 +170,7 @@ function PresetsPage() {
                   onChange={(event) => setForm((current) => ({ ...current, systemPrompt: event.currentTarget.value }))}
                 />
                 <Textarea
-                  label="사용자 프롬프트 템플릿"
+                  label="User prompt template"
                   styles={monoLabelStyles}
                   minRows={4}
                   autosize
@@ -176,7 +178,7 @@ function PresetsPage() {
                   onChange={(event) => setForm((current) => ({ ...current, userPromptTemplate: event.currentTarget.value }))}
                 />
                 <Textarea
-                  label="스타일 규칙 JSON"
+                  label="Style rules JSON"
                   styles={monoLabelStyles}
                   minRows={4}
                   autosize
@@ -185,37 +187,37 @@ function PresetsPage() {
                 />
                 <Group grow align="end">
                   <NumberInput
-                    label="온도"
+                    label="Temperature"
                     styles={monoLabelStyles}
                     value={form.temperature}
                     onChange={(value) => setForm((current) => ({ ...current, temperature: Number(value ?? 0) }))}
                   />
                   <NumberInput
-                    label="최대 토큰"
+                    label="Max tokens"
                     styles={monoLabelStyles}
                     value={form.maxTokens}
                     onChange={(value) => setForm((current) => ({ ...current, maxTokens: Number(value ?? 32000) }))}
                   />
                 </Group>
                 <Checkbox
-                  label="활성 프리셋으로 사용"
+                  label="Use this language preset in generation"
                   styles={{ label: { color: '#d6dbe3' } }}
                   checked={form.isActive}
                   onChange={(event) => setForm((current) => ({ ...current, isActive: event.currentTarget.checked }))}
                 />
                 <Group>
                   <Button onClick={() => void savePreset()} loading={busy} color="gray">
-                    저장
+                    Save
                   </Button>
                   <Button variant="default" styles={mutedButtonStyles} onClick={resetEditor}>
-                    새 프리셋
+                    Reset
                   </Button>
                   <Button variant="subtle" color="red" onClick={() => void removePreset()} disabled={!editingId} loading={busy}>
-                    삭제
+                    Delete
                   </Button>
                 </Group>
                 <Alert color="gray" styles={alertStyles}>
-                  언어 프리셋은 AI 생성 시 사용되는 프롬프트 설정입니다. 결과지 프리셋은 별도 탭에서 관리하며, 생성 시 각각 독립적으로 선택합니다.
+                  Language presets define prompt rules used during AI generation. Only active language presets are now included in create requests.
                 </Alert>
                 {message && <Alert color="gray" styles={alertStyles}>{message}</Alert>}
               </Stack>
@@ -227,23 +229,24 @@ function PresetsPage() {
       <Tabs.Panel value="report-presets" pt="md">
         <Grid gutter="lg">
           <Grid.Col span={{ base: 12, lg: 5 }}>
-            <PageSection title="결과지 프리셋 목록" description={`저장된 프리셋 ${sampleSets.length}개`}>
+            <PageSection title="Report preset list" description={`Total ${sampleSets.length} / Active ${activeSampleSetCount}`}>
               <Stack>
                 <Group justify="space-between">
                   <Text size="sm" c="dimmed" ff="JetBrains Mono, D2Coding, Consolas, monospace">
-                    결과지 프리셋 선택
+                    Report preset selection
                   </Text>
                   <Button variant="default" styles={mutedButtonStyles} onClick={() => void loadSampleSets()} loading={busy}>
-                    새로고침
+                    Reload
                   </Button>
                 </Group>
                 <ScrollArea h={520}>
                   <Table stickyHeader highlightOnHover>
                     <Table.Thead>
                       <Table.Tr>
-                        <Table.Th>이름</Table.Th>
-                        <Table.Th>파일 수</Table.Th>
-                        <Table.Th>수정일</Table.Th>
+                        <Table.Th>Name</Table.Th>
+                        <Table.Th>Status</Table.Th>
+                        <Table.Th>Files</Table.Th>
+                        <Table.Th>Updated</Table.Th>
                       </Table.Tr>
                     </Table.Thead>
                     <Table.Tbody>
@@ -257,6 +260,7 @@ function PresetsPage() {
                           }}
                         >
                           <Table.Td>{sampleSet.name}</Table.Td>
+                          <Table.Td>{sampleSet.active ?? sampleSet.isActive ? 'Active' : 'Inactive'}</Table.Td>
                           <Table.Td>{sampleSet.templateIds.length}</Table.Td>
                           <Table.Td>{new Date(sampleSet.updatedAt).toLocaleString()}</Table.Td>
                         </Table.Tr>
@@ -269,25 +273,25 @@ function PresetsPage() {
           </Grid.Col>
 
           <Grid.Col span={{ base: 12, lg: 7 }}>
-            <PageSection title={sampleSetEditingId ? '결과지 프리셋 수정' : '결과지 프리셋 생성'}>
+            <PageSection title={sampleSetEditingId ? 'Edit report preset' : 'Create report preset'}>
               <Stack>
                 <Group justify="space-between">
                   <Badge color="gray" variant="light" radius="sm">
-                    {sampleSetEditingId ? '수정 모드' : '생성 모드'}
+                    {sampleSetEditingId ? 'Edit mode' : 'Create mode'}
                   </Badge>
                   <Text size="sm" c="#7f8794" ff="JetBrains Mono, D2Coding, Consolas, monospace">
-                    {sampleSetEditingId ? sampleSetEditingId.slice(0, 8) : '신규'}
+                    {sampleSetEditingId ? sampleSetEditingId.slice(0, 8) : 'new'}
                   </Text>
                 </Group>
                 <TextInput
-                  label="결과지 프리셋 이름"
+                  label="Report preset name"
                   styles={monoLabelStyles}
                   value={sampleSetForm.name}
                   onChange={(event) => setSampleSetForm((current) => ({ ...current, name: event.currentTarget.value }))}
                 />
                 <MultiSelect
-                  label="포함할 결과지 파일"
-                  description="업로드된 DFM/PAS 파일 쌍을 선택하세요. 3개 이상도 포함할 수 있습니다."
+                  label="Included report files"
+                  description="Select uploaded DFM/PAS templates to include in this preset."
                   data={reportTemplateOptions}
                   searchable
                   clearable
@@ -295,19 +299,25 @@ function PresetsPage() {
                   onChange={(value) => setSampleSetForm((current) => ({ ...current, templateIds: value }))}
                   styles={monoLabelStyles}
                 />
+                <Checkbox
+                  label="Use this report preset in generation"
+                  styles={{ label: { color: '#d6dbe3' } }}
+                  checked={sampleSetForm.isActive}
+                  onChange={(event) => setSampleSetForm((current) => ({ ...current, isActive: event.currentTarget.checked }))}
+                />
                 <Group>
                   <Button onClick={() => void saveSampleSet()} loading={busy} color="gray">
-                    저장
+                    Save
                   </Button>
                   <Button variant="default" styles={mutedButtonStyles} onClick={resetSampleSetEditor}>
-                    새 프리셋
+                    Reset
                   </Button>
                   <Button variant="subtle" color="red" onClick={() => void removeSampleSet()} disabled={!sampleSetEditingId} loading={busy}>
-                    삭제
+                    Delete
                   </Button>
                 </Group>
                 <Alert color="gray" styles={alertStyles}>
-                  결과지 프리셋은 업로드된 델파이 템플릿 파일(DFM/PAS)의 재사용 가능한 묶음입니다. 언어 프리셋에서 하나의 결과지 프리셋을 연결할 수 있습니다.
+                  Report presets are reusable DFM/PAS reference bundles. Only active report presets are now included in create requests.
                 </Alert>
                 {sampleSetMessage && <Alert color="gray" styles={alertStyles}>{sampleSetMessage}</Alert>}
               </Stack>

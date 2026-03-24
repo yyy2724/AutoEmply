@@ -19,8 +19,6 @@ export function useCreateWorkspace() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [presets, setPresets] = useState<PromptPreset[]>([])
   const [sampleSets, setSampleSets] = useState<SampleTemplateSet[]>([])
-  const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null)
-  const [selectedSampleSetId, setSelectedSampleSetId] = useState<string | null>(null)
 
   useEffect(() => {
     fetchAiVersion()
@@ -76,7 +74,12 @@ export function useCreateWorkspace() {
     try {
       setBusy(true)
       setStatus(emptyStatus)
-      const data = await generateLayoutFromImage(formName, selectedFile, selectedPresetId, selectedSampleSetId)
+      const data = await generateLayoutFromImage(
+        formName,
+        selectedFile,
+        presets.filter((preset) => preset.active ?? preset.isActive).map((preset) => preset.id),
+        sampleSets.filter((sampleSet) => sampleSet.active ?? sampleSet.isActive).map((sampleSet) => sampleSet.id),
+      )
       setLayoutSpecJson(JSON.stringify(data, null, 2))
       setInfo('LayoutSpec JSON 생성이 완료되었습니다.')
       notifications.show({ color: 'teal', message: 'LayoutSpec JSON 생성이 완료되었습니다.' })
@@ -96,7 +99,12 @@ export function useCreateWorkspace() {
     try {
       setBusy(true)
       setStatus(emptyStatus)
-      const blob = await exportZipFromImage(formName, selectedFile, selectedPresetId, selectedSampleSetId)
+      const blob = await exportZipFromImage(
+        formName,
+        selectedFile,
+        presets.filter((preset) => preset.active ?? preset.isActive).map((preset) => preset.id),
+        sampleSets.filter((sampleSet) => sampleSet.active ?? sampleSet.isActive).map((sampleSet) => sampleSet.id),
+      )
       downloadBlob(blob, `${formName}.zip`)
       setInfo('이미지 기반 ZIP 내보내기를 시작했습니다.')
       notifications.show({ color: 'teal', message: '이미지 기반 ZIP 내보내기를 시작했습니다.' })
@@ -131,13 +139,9 @@ export function useCreateWorkspace() {
     selectedFile,
     presets,
     sampleSets,
-    selectedPresetId,
-    selectedSampleSetId,
     setFormName,
     setLayoutSpecJson,
     setSelectedFile,
-    setSelectedPresetId,
-    setSelectedSampleSetId,
     exportFromImage,
     exportFromJson,
     generateJson,

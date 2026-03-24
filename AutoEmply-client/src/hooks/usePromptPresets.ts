@@ -31,6 +31,7 @@ const createDefaultPresetForm = (): PromptPresetForm => ({
 const createDefaultSampleSetForm = (): SampleTemplateSetForm => ({
   name: `sample-set-${new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14)}`,
   templateIds: [],
+  isActive: true,
 })
 
 function createPresetFormFromSource(source?: PromptPreset | null): PromptPresetForm {
@@ -122,6 +123,7 @@ export function usePromptPresets() {
     setSampleSetForm({
       name: sampleSet.name,
       templateIds: sampleSet.templateIds,
+      isActive: sampleSet.active ?? sampleSet.isActive ?? false,
     })
   }
 
@@ -170,6 +172,7 @@ export function usePromptPresets() {
       const payload: SampleTemplateSetForm = {
         name: sampleSetForm.name.trim(),
         templateIds: sampleSetForm.templateIds,
+        isActive: sampleSetForm.isActive,
       }
 
       if (sampleSetEditingId) {

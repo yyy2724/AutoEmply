@@ -16,6 +16,7 @@ import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -23,6 +24,7 @@ import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import java.util.stream.Collectors;
 
 @Service
 @Transactional
@@ -123,16 +125,14 @@ public class PromptPresetService {
     }
 
     @Transactional(readOnly = true)
-    public ResolvedPromptPreset resolve(UUID presetId, UUID sampleTemplateSetId) {
+    public ResolvedPromptPreset resolve(List<UUID> presetIds, List<UUID> sampleTemplateSetIds) {
         PromptPreset primary;
         List<PromptPreset> references;
 
-        if (presetId != null) {
-            primary = promptPresetRepository.findById(presetId).orElse(null);
-            if (primary == null) {
-                return null;
-            }
-            references = promptPresetRepository.findByActiveTrueAndIdNotOrderByUpdatedAtDesc(primary.getId());
+        if (presetIds != null && !presetIds.isEmpty()) {
+            List<PromptPreset> requestedPresets = loadPresetsInOrder(presetIds);
+            primary = requestedPresets.getFirst();
+            references = requestedPresets.stream().skip(1).toList();
         } else {
             List<PromptPreset> activePresets = promptPresetRepository.findByActiveTrueOrderByUpdatedAtDesc();
             if (activePresets.isEmpty()) {
@@ -142,7 +142,7 @@ public class PromptPresetService {
             references = activePresets.stream().skip(1).toList();
         }
 
-        List<UUID> sampleTemplateIds = resolveSampleTemplateIds(sampleTemplateSetId);
+        List<UUID> sampleTemplateIds = resolveSampleTemplateIds(sampleTemplateSetIds);
         return mergePreset(primary, references, sampleTemplateIds);
     }
 
@@ -163,11 +163,30 @@ public class PromptPresetService {
         );
     }
 
-    private List<UUID> resolveSampleTemplateIds(UUID sampleTemplateSetId) {
-        if (sampleTemplateSetId == null) {
+    private List<UUID> resolveSampleTemplateIds(List<UUID> sampleTemplateSetIds) {
+        if (sampleTemplateSetIds == null || sampleTemplateSetIds.isEmpty()) {
             return List.of();
         }
-        return sampleTemplateSetService.parseTemplateIds(sampleTemplateSetService.getEntity(sampleTemplateSetId));
+
+        LinkedHashSet<UUID> templateIds = new LinkedHashSet<>();
+        for (UUID sampleTemplateSetId : sampleTemplateSetIds) {
+            templateIds.addAll(sampleTemplateSetService.parseTemplateIds(sampleTemplateSetService.getEntity(sampleTemplateSetId)));
+        }
+        return List.copyOf(templateIds);
+    }
+
+    private List<PromptPreset> loadPresetsInOrder(List<UUID> presetIds) {
+        Map<UUID, PromptPreset> presetsById = promptPresetRepository.findAllById(presetIds).stream()
+            .collect(Collectors.toMap(PromptPreset::getId, preset -> preset));
+        List<PromptPreset> ordered = new ArrayList<>();
+        for (UUID id : presetIds) {
+            PromptPreset preset = presetsById.get(id);
+            if (preset == null) {
+                throw new NotFoundException("Preset not found.");
+            }
+            ordered.add(preset);
+        }
+        return ordered;
     }
 
     private String buildPromptWithReferences(String primary, List<String> references, String sectionTitle) {

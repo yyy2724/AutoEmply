@@ -8,6 +8,7 @@ import java.time.OffsetDateTime;
 import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
+import lombok.Builder.Default;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -29,6 +30,10 @@ public class SampleTemplateSet {
 
     @Column(name = "template_ids_json", nullable = false, columnDefinition = "text")
     private String templateIdsJson;
+
+    @Column(name = "is_active", nullable = false)
+    @Default
+    private boolean active = true;
 
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;

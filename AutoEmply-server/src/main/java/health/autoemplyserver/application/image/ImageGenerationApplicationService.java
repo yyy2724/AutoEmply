@@ -3,6 +3,7 @@ package health.autoemplyserver.application.image;
 import health.autoemplyserver.model.FormStructure;
 import health.autoemplyserver.model.LayoutSpec;
 import health.autoemplyserver.service.ImageGenerationService;
+import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -15,23 +16,23 @@ public class ImageGenerationApplicationService {
         this.imageGenerationService = imageGenerationService;
     }
 
-    public LayoutSpec generateLayout(String formName, MultipartFile image, String presetId, String sampleTemplateSetId) {
-        return imageGenerationService.generateLayoutSpec(formName, image, presetId, sampleTemplateSetId);
+    public LayoutSpec generateLayout(String formName, MultipartFile image, List<String> presetIds, List<String> sampleTemplateSetIds) {
+        return imageGenerationService.generateLayoutSpec(formName, image, presetIds, sampleTemplateSetIds);
     }
 
-    public LayoutSpec generateLayoutFromStructure(String formName, MultipartFile image, String presetId, String sampleTemplateSetId) {
-        return imageGenerationService.generateLayoutSpecFromStructure(formName, image, presetId, sampleTemplateSetId);
+    public LayoutSpec generateLayoutFromStructure(String formName, MultipartFile image, List<String> presetIds, List<String> sampleTemplateSetIds) {
+        return imageGenerationService.generateLayoutSpecFromStructure(formName, image, presetIds, sampleTemplateSetIds);
     }
 
-    public FormStructure generateStructure(String formName, MultipartFile image, String presetId, String sampleTemplateSetId) {
-        return imageGenerationService.generateStructure(formName, image, presetId, sampleTemplateSetId);
+    public FormStructure generateStructure(String formName, MultipartFile image, List<String> presetIds, List<String> sampleTemplateSetIds) {
+        return imageGenerationService.generateStructure(formName, image, presetIds, sampleTemplateSetIds);
     }
 
-    public byte[] exportZip(String formName, MultipartFile image, String presetId, String sampleTemplateSetId) {
-        return imageGenerationService.exportZip(formName, image, presetId, sampleTemplateSetId);
+    public byte[] exportZip(String formName, MultipartFile image, List<String> presetIds, List<String> sampleTemplateSetIds) {
+        return imageGenerationService.exportZip(formName, image, presetIds, sampleTemplateSetIds);
     }
 
-    public byte[] exportZipFromStructure(String formName, MultipartFile image, String presetId, String sampleTemplateSetId) {
-        return imageGenerationService.exportZipFromStructure(formName, image, presetId, sampleTemplateSetId);
+    public byte[] exportZipFromStructure(String formName, MultipartFile image, List<String> presetIds, List<String> sampleTemplateSetIds) {
+        return imageGenerationService.exportZipFromStructure(formName, image, presetIds, sampleTemplateSetIds);
     }
 }

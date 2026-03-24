@@ -9,6 +9,7 @@ AutoEmply-server/build/
 AutoEmply-client/node_modules/
 AutoEmply-client/dist/
 AutoEmply-client/.vite/
+.claude
 
 
 *.log

@@ -56,7 +56,7 @@ class ApiExceptionHandlerIntegrationTest {
 
     @Test
     void mapsExternalServiceFailuresTo502() throws Exception {
-        when(imageGenerationApplicationService.generateLayout(anyString(), any(), any()))
+        when(imageGenerationApplicationService.generateLayout(anyString(), any(), any(), any()))
             .thenThrow(new ExternalServiceException("Claude overloaded"));
 
         mockMvc.perform(multipart("/api/generate-json")

@@ -1,4 +1,4 @@
-import { Alert, Button, Code, FileInput, Grid, Group, List, Select, Stack, Text, TextInput, Textarea } from '@mantine/core'
+import { Alert, Button, Code, FileInput, Grid, Group, List, Stack, Text, TextInput, Textarea } from '@mantine/core'
 import { IconAlertTriangle, IconInfoCircle, IconRefresh } from '@tabler/icons-react'
 import PageSection from '../components/PageSection'
 import { useCreateWorkspace } from '../hooks/useCreateWorkspace'
@@ -13,27 +13,13 @@ function CreatePage() {
     selectedFile,
     presets,
     sampleSets,
-    selectedPresetId,
-    selectedSampleSetId,
     setFormName,
     setLayoutSpecJson,
     setSelectedFile,
-    setSelectedPresetId,
-    setSelectedSampleSetId,
     exportFromImage,
     exportFromJson,
     generateJson,
   } = useCreateWorkspace()
-
-  const presetOptions = presets.map((preset) => ({
-    value: preset.id,
-    label: `${preset.name}${preset.active ?? preset.isActive ? ' (활성)' : ''}`,
-  }))
-
-  const sampleSetOptions = sampleSets.map((sampleSet) => ({
-    value: sampleSet.id,
-    label: `${sampleSet.name} (${sampleSet.templateIds.length}개)`,
-  }))
 
   const retryHandler = status.retryAction === 'generate-json'
     ? generateJson
@@ -46,43 +32,33 @@ function CreatePage() {
   return (
     <Grid gutter="lg">
       <Grid.Col span={{ base: 12, lg: 8 }}>
-        <PageSection title="생성" description="파일을 업로드해 LayoutSpec JSON을 만들고 ZIP으로 내보냅니다.">
+        <PageSection title="Create" description="Upload a source file, generate LayoutSpec JSON, and export Delphi ZIP output.">
           <Stack>
-            <TextInput label="폼 이름" value={formName} onChange={(event) => setFormName(event.currentTarget.value)} />
+            <TextInput label="Form name" value={formName} onChange={(event) => setFormName(event.currentTarget.value)} />
             <FileInput
-              label="파일"
-              description="jpg, png, webp, gif, pdf, 최대 5MB"
+              label="Source file"
+              description="jpg, png, webp, gif, pdf, up to 5MB"
               value={selectedFile}
               onChange={setSelectedFile}
               accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,image/jpeg,image/png,image/gif,image/webp,application/pdf"
             />
-            <Group grow>
-              <Select
-                label="언어 프리셋"
-                description="AI 생성에 사용할 프롬프트 프리셋을 선택하세요."
-                data={presetOptions}
-                searchable
-                clearable
-                value={selectedPresetId}
-                onChange={setSelectedPresetId}
-              />
-              <Select
-                label="결과지 프리셋"
-                description="참조할 결과지 파일 묶음을 선택하세요."
-                data={sampleSetOptions}
-                searchable
-                clearable
-                value={selectedSampleSetId}
-                onChange={setSelectedSampleSetId}
-              />
-            </Group>
+            <Alert color="gray" title="Preset payload">
+              <Stack gap={6}>
+                <Text size="sm">
+                  Generate requests now send all saved language presets ({presets.length}) and all saved report preset sets ({sampleSets.length}) to the API.
+                </Text>
+                <Text size="sm" c="dimmed">
+                  Per-request selection is disabled here. Manage the full preset list from the preset management page.
+                </Text>
+              </Stack>
+            </Alert>
             <Group>
-              <Button onClick={generateJson} loading={busy} color="dark">JSON 생성</Button>
-              <Button onClick={exportFromImage} loading={busy} variant="default">ZIP 생성</Button>
-              <Button onClick={exportFromJson} loading={busy} variant="subtle">현재 JSON 내보내기</Button>
+              <Button onClick={generateJson} loading={busy} color="dark">Generate JSON</Button>
+              <Button onClick={exportFromImage} loading={busy} variant="default">Generate ZIP</Button>
+              <Button onClick={exportFromJson} loading={busy} variant="subtle">Export current JSON</Button>
               {status.retryable && retryHandler && (
                 <Button leftSection={<IconRefresh size={16} />} onClick={retryHandler} disabled={busy} variant="subtle">
-                  다시 시도
+                  Retry
                 </Button>
               )}
             </Group>
@@ -116,11 +92,11 @@ function CreatePage() {
       </Grid.Col>
 
       <Grid.Col span={{ base: 12, lg: 4 }}>
-        <PageSection title="상태" description="생성에 필요한 기본 정보입니다.">
+        <PageSection title="Status" description="Runtime and endpoint information used during generation.">
           <Stack>
-            <Text size="sm">AI 버전</Text>
+            <Text size="sm">AI version</Text>
             <Code block>{aiVersion}</Code>
-            <Text size="sm" c="dimmed">지원 API</Text>
+            <Text size="sm" c="dimmed">Supported APIs</Text>
             <Code block>{`POST /api/generate-json
 POST /api/export-from-image
 POST /api/export`}</Code>
