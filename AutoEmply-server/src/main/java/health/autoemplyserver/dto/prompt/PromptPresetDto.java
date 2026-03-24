@@ -16,6 +16,7 @@ public record PromptPresetDto(
     BigDecimal temperature,
     Integer maxTokens,
     boolean isActive,
+    boolean isPrimary,
     OffsetDateTime createdAt,
     OffsetDateTime updatedAt
 ) {

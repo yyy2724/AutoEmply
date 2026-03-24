@@ -9,6 +9,7 @@ public record SampleTemplateSetDto(
     String name,
     List<UUID> templateIds,
     boolean isActive,
+    boolean isPrimary,
     OffsetDateTime createdAt,
     OffsetDateTime updatedAt
 ) {

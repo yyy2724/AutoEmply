@@ -19,10 +19,6 @@ export function useCreateWorkspace() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [presets, setPresets] = useState<PromptPreset[]>([])
   const [sampleSets, setSampleSets] = useState<SampleTemplateSet[]>([])
-  const [primaryPresetId, setPrimaryPresetId] = useState<string | null>(null)
-  const [referencePresetIds, setReferencePresetIds] = useState<string[]>([])
-  const [primarySampleSetId, setPrimarySampleSetId] = useState<string | null>(null)
-  const [referenceSampleSetIds, setReferenceSampleSetIds] = useState<string[]>([])
 
   useEffect(() => {
     fetchAiVersion()
@@ -30,21 +26,11 @@ export function useCreateWorkspace() {
       .catch(() => setAiVersion('확인 불가'))
 
     fetchPresets()
-      .then((data) => {
-        setPresets(data)
-        const nextPrimaryId = pickDefaultSelection(data)?.id ?? null
-        setPrimaryPresetId(nextPrimaryId)
-        setReferencePresetIds([])
-      })
+      .then((data) => setPresets(data))
       .catch(() => setPresets([]))
 
     fetchSampleTemplateSets()
-      .then((data) => {
-        setSampleSets(data)
-        const nextPrimaryId = pickDefaultSelection(data)?.id ?? null
-        setPrimarySampleSetId(nextPrimaryId)
-        setReferenceSampleSetIds([])
-      })
+      .then((data) => setSampleSets(data))
       .catch(() => setSampleSets([]))
   }, [])
 
@@ -91,8 +77,8 @@ export function useCreateWorkspace() {
       const data = await generateLayoutFromImage(
         formName,
         selectedFile,
-        buildOrderedIds(primaryPresetId, referencePresetIds),
-        buildOrderedIds(primarySampleSetId, referenceSampleSetIds),
+        getGenerationPresetIds(presets),
+        getGenerationSampleSetIds(sampleSets),
       )
       setLayoutSpecJson(JSON.stringify(data, null, 2))
       setInfo('LayoutSpec JSON 생성이 완료되었습니다.')
@@ -116,8 +102,8 @@ export function useCreateWorkspace() {
       const blob = await exportZipFromImage(
         formName,
         selectedFile,
-        buildOrderedIds(primaryPresetId, referencePresetIds),
-        buildOrderedIds(primarySampleSetId, referenceSampleSetIds),
+        getGenerationPresetIds(presets),
+        getGenerationSampleSetIds(sampleSets),
       )
       downloadBlob(blob, `${formName}.zip`)
       setInfo('이미지 기반 ZIP 내보내기를 시작했습니다.')
@@ -153,41 +139,37 @@ export function useCreateWorkspace() {
     selectedFile,
     presets,
     sampleSets,
-    primaryPresetId,
-    referencePresetIds,
-    primarySampleSetId,
-    referenceSampleSetIds,
     setFormName,
     setLayoutSpecJson,
     setSelectedFile,
-    setPrimaryPresetId,
-    setReferencePresetIds,
-    setPrimarySampleSetId,
-    setReferenceSampleSetIds,
     exportFromImage,
     exportFromJson,
     generateJson,
   }
 }
 
-function buildOrderedIds(primaryId: string | null, referenceIds: string[]) {
-  return [primaryId, ...referenceIds]
-    .filter((value): value is string => Boolean(value))
-    .filter((value, index, values) => values.indexOf(value) === index)
+function getGenerationPresetIds(presets: PromptPreset[]) {
+  return orderActiveItems(presets, (item) => item.primary ?? item.isPrimary).map((item) => item.id)
 }
 
-function pickDefaultSelection<T extends { id: string; updatedAt: string; active?: boolean; isActive?: boolean }>(items: T[]) {
-  const activeItems = items.filter((item) => item.active ?? item.isActive)
-  const pool = activeItems.length > 0 ? activeItems : items
-  let latest: T | null = null
+function getGenerationSampleSetIds(sampleSets: SampleTemplateSet[]) {
+  return orderActiveItems(sampleSets, (item) => item.primary ?? item.isPrimary).map((item) => item.id)
+}
 
-  for (const item of pool) {
-    if (!latest || Date.parse(item.updatedAt) > Date.parse(latest.updatedAt)) {
-      latest = item
-    }
-  }
-
-  return latest
+function orderActiveItems<T extends { id: string; updatedAt: string; active?: boolean; isActive?: boolean }>(
+  items: T[],
+  isPrimary: (item: T) => boolean | undefined,
+) {
+  return items
+    .filter((item) => item.active ?? item.isActive)
+    .slice()
+    .sort((left, right) => {
+      const primaryDiff = Number(Boolean(isPrimary(right))) - Number(Boolean(isPrimary(left)))
+      if (primaryDiff !== 0) {
+        return primaryDiff
+      }
+      return Date.parse(right.updatedAt) - Date.parse(left.updatedAt)
+    })
 }
 
 function mapApiErrorMessage(error: ApiRequestError, fallbackMessage: string) {

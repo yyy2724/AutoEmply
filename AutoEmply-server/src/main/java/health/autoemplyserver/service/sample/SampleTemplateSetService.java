@@ -12,6 +12,7 @@ import health.autoemplyserver.support.exception.BadRequestException;
 import health.autoemplyserver.support.exception.NotFoundException;
 import java.time.OffsetDateTime;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -59,11 +60,13 @@ public class SampleTemplateSetService {
             .name(request.name().trim())
             .templateIdsJson(serializeTemplateIds(templateIds))
             .active(request.isActive())
+            .primary(request.isPrimary())
             .createdAt(now)
             .updatedAt(now)
             .build();
 
         sampleTemplateSetRepository.save(sampleTemplateSet);
+        normalizePrimarySampleSet(sampleTemplateSet);
         return toDto(sampleTemplateSet);
     }
 
@@ -73,7 +76,9 @@ public class SampleTemplateSetService {
         sampleTemplateSet.setName(request.name().trim());
         sampleTemplateSet.setTemplateIdsJson(serializeTemplateIds(templateIds));
         sampleTemplateSet.setActive(request.isActive());
+        sampleTemplateSet.setPrimary(request.isPrimary());
         sampleTemplateSet.setUpdatedAt(OffsetDateTime.now());
+        normalizePrimarySampleSet(sampleTemplateSet);
         return toDto(sampleTemplateSet);
     }
 
@@ -141,8 +146,29 @@ public class SampleTemplateSetService {
             sampleTemplateSet.getName(),
             parseTemplateIds(sampleTemplateSet),
             sampleTemplateSet.isActive(),
+            sampleTemplateSet.isPrimary(),
             sampleTemplateSet.getCreatedAt(),
             sampleTemplateSet.getUpdatedAt()
         );
+    }
+
+    public List<SampleTemplateSet> getActiveSetsOrderedForGeneration() {
+        return sampleTemplateSetRepository.findAll().stream()
+            .filter(SampleTemplateSet::isActive)
+            .sorted(Comparator
+                .comparing(SampleTemplateSet::isPrimary).reversed()
+                .thenComparing(SampleTemplateSet::getUpdatedAt, Comparator.reverseOrder()))
+            .toList();
+    }
+
+    private void normalizePrimarySampleSet(SampleTemplateSet target) {
+        if (!target.isPrimary()) {
+            return;
+        }
+
+        sampleTemplateSetRepository.findAll().stream()
+            .filter(existing -> !existing.getId().equals(target.getId()))
+            .filter(SampleTemplateSet::isPrimary)
+            .forEach(existing -> existing.setPrimary(false));
     }
 }

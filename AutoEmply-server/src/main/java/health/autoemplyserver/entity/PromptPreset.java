@@ -59,6 +59,10 @@ public class PromptPreset {
     @Column(name = "is_active", nullable = false)
     private boolean active = true;
 
+    @Builder.Default
+    @Column(name = "is_primary", nullable = false)
+    private boolean primary = false;
+
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;
 

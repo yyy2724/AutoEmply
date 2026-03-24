@@ -18,6 +18,8 @@ export type PromptPreset = {
   maxTokens?: number | null
   active?: boolean
   isActive?: boolean
+  primary?: boolean
+  isPrimary?: boolean
   createdAt: string
   updatedAt: string
 }
@@ -32,6 +34,7 @@ export type PromptPresetForm = {
   temperature: number
   maxTokens: number
   isActive: boolean
+  isPrimary: boolean
 }
 
 export type SampleTemplateSet = {
@@ -40,6 +43,8 @@ export type SampleTemplateSet = {
   templateIds: string[]
   active?: boolean
   isActive?: boolean
+  primary?: boolean
+  isPrimary?: boolean
   createdAt: string
   updatedAt: string
 }
@@ -48,6 +53,7 @@ export type SampleTemplateSetForm = {
   name: string
   templateIds: string[]
   isActive: boolean
+  isPrimary: boolean
 }
 
 export type LayoutItem = {

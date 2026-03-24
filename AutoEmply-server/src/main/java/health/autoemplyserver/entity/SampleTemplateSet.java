@@ -35,6 +35,10 @@ public class SampleTemplateSet {
     @Default
     private boolean active = true;
 
+    @Column(name = "is_primary", nullable = false)
+    @Default
+    private boolean primary = false;
+
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;
 

@@ -8,6 +8,7 @@ import java.util.UUID;
 public record UpdateSampleTemplateSetRequest(
     @NotBlank String name,
     List<UUID> templateIds,
-    @JsonAlias("active") boolean isActive
+    @JsonAlias("active") boolean isActive,
+    @JsonAlias("primary") boolean isPrimary
 ) {
 }

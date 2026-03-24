@@ -16,6 +16,8 @@ public record UpdatePromptPresetRequest(
     BigDecimal temperature,
     Integer maxTokens,
     @JsonAlias("active")
-    boolean isActive
+    boolean isActive,
+    @JsonAlias("primary")
+    boolean isPrimary
 ) {
 }

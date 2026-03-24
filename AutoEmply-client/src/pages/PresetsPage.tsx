@@ -205,6 +205,12 @@ function PresetsPage() {
                   checked={form.isActive}
                   onChange={(event) => setForm((current) => ({ ...current, isActive: event.currentTarget.checked }))}
                 />
+                <Checkbox
+                  label="Use this as representative language preset"
+                  styles={{ label: { color: '#d6dbe3' } }}
+                  checked={form.isPrimary}
+                  onChange={(event) => setForm((current) => ({ ...current, isPrimary: event.currentTarget.checked }))}
+                />
                 <Group>
                   <Button onClick={() => void savePreset()} loading={busy} color="gray">
                     Save
@@ -217,7 +223,7 @@ function PresetsPage() {
                   </Button>
                 </Group>
                 <Alert color="gray" styles={alertStyles}>
-                  Language presets define prompt rules used during AI generation. Only active language presets are now included in create requests.
+                  Language presets define prompt rules used during AI generation. Active presets are included in create requests, and the representative preset is sent first.
                 </Alert>
                 {message && <Alert color="gray" styles={alertStyles}>{message}</Alert>}
               </Stack>
@@ -305,6 +311,12 @@ function PresetsPage() {
                   checked={sampleSetForm.isActive}
                   onChange={(event) => setSampleSetForm((current) => ({ ...current, isActive: event.currentTarget.checked }))}
                 />
+                <Checkbox
+                  label="Use this as representative report preset"
+                  styles={{ label: { color: '#d6dbe3' } }}
+                  checked={sampleSetForm.isPrimary}
+                  onChange={(event) => setSampleSetForm((current) => ({ ...current, isPrimary: event.currentTarget.checked }))}
+                />
                 <Group>
                   <Button onClick={() => void saveSampleSet()} loading={busy} color="gray">
                     Save
@@ -317,7 +329,7 @@ function PresetsPage() {
                   </Button>
                 </Group>
                 <Alert color="gray" styles={alertStyles}>
-                  Report presets are reusable DFM/PAS reference bundles. Only active report presets are now included in create requests.
+                  Report presets are reusable DFM/PAS reference bundles. Active report presets are included in create requests, and the representative preset is sent first.
                 </Alert>
                 {sampleSetMessage && <Alert color="gray" styles={alertStyles}>{sampleSetMessage}</Alert>}
               </Stack>

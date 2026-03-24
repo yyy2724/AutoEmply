@@ -26,12 +26,14 @@ const createDefaultPresetForm = (): PromptPresetForm => ({
   temperature: 0,
   maxTokens: 32000,
   isActive: true,
+  isPrimary: false,
 })
 
 const createDefaultSampleSetForm = (): SampleTemplateSetForm => ({
   name: `sample-set-${new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14)}`,
   templateIds: [],
   isActive: true,
+  isPrimary: false,
 })
 
 function createPresetFormFromSource(source?: PromptPreset | null): PromptPresetForm {
@@ -45,6 +47,7 @@ function createPresetFormFromSource(source?: PromptPreset | null): PromptPresetF
     temperature: 0,
     maxTokens: 32000,
     isActive: true,
+    isPrimary: false,
   }
 }
 
@@ -115,6 +118,7 @@ export function usePromptPresets() {
       temperature: preset.temperature ?? 0,
       maxTokens: preset.maxTokens ?? 32000,
       isActive: preset.active ?? preset.isActive ?? false,
+      isPrimary: preset.primary ?? preset.isPrimary ?? false,
     })
   }
 
@@ -124,6 +128,7 @@ export function usePromptPresets() {
       name: sampleSet.name,
       templateIds: sampleSet.templateIds,
       isActive: sampleSet.active ?? sampleSet.isActive ?? false,
+      isPrimary: sampleSet.primary ?? sampleSet.isPrimary ?? false,
     })
   }
 
@@ -147,6 +152,7 @@ export function usePromptPresets() {
         styleRulesJson: form.styleRulesJson.trim() || '',
         sampleTemplateIds: [],
         model: form.model.trim() || '',
+        isPrimary: form.isPrimary,
       }
 
       if (editingId) {
@@ -173,6 +179,7 @@ export function usePromptPresets() {
         name: sampleSetForm.name.trim(),
         templateIds: sampleSetForm.templateIds,
         isActive: sampleSetForm.isActive,
+        isPrimary: sampleSetForm.isPrimary,
       }
 
       if (sampleSetEditingId) {

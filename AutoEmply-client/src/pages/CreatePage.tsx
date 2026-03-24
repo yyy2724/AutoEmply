@@ -1,4 +1,4 @@
-import { Alert, Button, Code, FileInput, Grid, Group, List, MultiSelect, Select, Stack, Text, TextInput, Textarea } from '@mantine/core'
+import { Alert, Button, Code, FileInput, Grid, Group, List, Stack, Text, TextInput, Textarea } from '@mantine/core'
 import { IconAlertTriangle, IconInfoCircle, IconRefresh } from '@tabler/icons-react'
 import PageSection from '../components/PageSection'
 import { useCreateWorkspace } from '../hooks/useCreateWorkspace'
@@ -13,31 +13,13 @@ function CreatePage() {
     selectedFile,
     presets,
     sampleSets,
-    primaryPresetId,
-    referencePresetIds,
-    primarySampleSetId,
-    referenceSampleSetIds,
     setFormName,
     setLayoutSpecJson,
     setSelectedFile,
-    setPrimaryPresetId,
-    setReferencePresetIds,
-    setPrimarySampleSetId,
-    setReferenceSampleSetIds,
     exportFromImage,
     exportFromJson,
     generateJson,
   } = useCreateWorkspace()
-
-  const presetOptions = presets.map((preset) => ({
-    value: preset.id,
-    label: `${preset.name}${preset.active ?? preset.isActive ? ' [active]' : ''}`,
-  }))
-
-  const sampleSetOptions = sampleSets.map((sampleSet) => ({
-    value: sampleSet.id,
-    label: `${sampleSet.name}${sampleSet.active ?? sampleSet.isActive ? ' [active]' : ''}`,
-  }))
 
   const retryHandler = status.retryAction === 'generate-json'
     ? generateJson
@@ -46,6 +28,9 @@ function CreatePage() {
       : status.retryAction === 'export-json'
         ? exportFromJson
         : null
+
+  const activePresetCount = presets.filter((preset) => preset.active ?? preset.isActive).length
+  const activeSampleSetCount = sampleSets.filter((sampleSet) => sampleSet.active ?? sampleSet.isActive).length
 
   return (
     <Grid gutter="lg">
@@ -60,47 +45,13 @@ function CreatePage() {
               onChange={setSelectedFile}
               accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,image/jpeg,image/png,image/gif,image/webp,application/pdf"
             />
-            <Select
-              label="Primary language preset"
-              description="This preset is sent first and treated as the main prompt."
-              data={presetOptions}
-              value={primaryPresetId}
-              onChange={setPrimaryPresetId}
-              clearable
-            />
-            <MultiSelect
-              label="Reference language presets"
-              description="These presets are appended after the primary preset as references."
-              data={presetOptions.filter((option) => option.value !== primaryPresetId)}
-              value={referencePresetIds.filter((id) => id !== primaryPresetId)}
-              onChange={setReferencePresetIds}
-              searchable
-              clearable
-            />
-            <Select
-              label="Primary report preset"
-              description="This report preset set is sent first."
-              data={sampleSetOptions}
-              value={primarySampleSetId}
-              onChange={setPrimarySampleSetId}
-              clearable
-            />
-            <MultiSelect
-              label="Reference report presets"
-              description="Additional report preset sets are sent after the primary selection."
-              data={sampleSetOptions.filter((option) => option.value !== primarySampleSetId)}
-              value={referenceSampleSetIds.filter((id) => id !== primarySampleSetId)}
-              onChange={setReferenceSampleSetIds}
-              searchable
-              clearable
-            />
             <Alert color="gray" title="Preset payload">
               <Stack gap={6}>
                 <Text size="sm">
-                  The selected primary preset is sent first. Additional selections are sent after it as references.
+                  Generate requests send all active language presets ({activePresetCount}) and all active report preset sets ({activeSampleSetCount}) to the API.
                 </Text>
                 <Text size="sm" c="dimmed">
-                  If nothing is selected, the request is sent without that preset type.
+                  Items marked as representative on the preset management page are sent first.
                 </Text>
               </Stack>
             </Alert>

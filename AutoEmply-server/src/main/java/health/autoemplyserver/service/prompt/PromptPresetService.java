@@ -16,6 +16,7 @@ import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -82,10 +83,12 @@ public class PromptPresetService {
         preset.setTemperature(request.temperature());
         preset.setMaxTokens(request.maxTokens());
         preset.setActive(request.isActive());
+        preset.setPrimary(request.isPrimary());
         preset.setCreatedAt(now);
         preset.setUpdatedAt(now);
 
         promptPresetRepository.save(preset);
+        normalizePrimaryPreset(preset);
         saveVersionSnapshot(preset, 1, now);
         return toDto(preset);
     }
@@ -110,8 +113,10 @@ public class PromptPresetService {
         preset.setTemperature(request.temperature());
         preset.setMaxTokens(request.maxTokens());
         preset.setActive(request.isActive());
+        preset.setPrimary(request.isPrimary());
         preset.setUpdatedAt(OffsetDateTime.now());
 
+        normalizePrimaryPreset(preset);
         int nextVersion = preset.getVersions().stream().mapToInt(PromptVersion::getVersion).max().orElse(0) + 1;
         saveVersionSnapshot(preset, nextVersion, OffsetDateTime.now());
         return toDto(preset);
@@ -138,8 +143,9 @@ public class PromptPresetService {
             if (activePresets.isEmpty()) {
                 return null;
             }
-            primary = activePresets.getFirst();
-            references = activePresets.stream().skip(1).toList();
+            List<PromptPreset> orderedActivePresets = orderPresetsForGeneration(activePresets);
+            primary = orderedActivePresets.getFirst();
+            references = orderedActivePresets.stream().skip(1).toList();
         }
 
         List<UUID> sampleTemplateIds = resolveSampleTemplateIds(sampleTemplateSetIds);
@@ -187,6 +193,14 @@ public class PromptPresetService {
             ordered.add(preset);
         }
         return ordered;
+    }
+
+    private List<PromptPreset> orderPresetsForGeneration(List<PromptPreset> presets) {
+        return presets.stream()
+            .sorted(Comparator
+                .comparing(PromptPreset::isPrimary).reversed()
+                .thenComparing(PromptPreset::getUpdatedAt, Comparator.reverseOrder()))
+            .toList();
     }
 
     private String buildPromptWithReferences(String primary, List<String> references, String sectionTitle) {
@@ -356,8 +370,20 @@ public class PromptPresetService {
             preset.getTemperature(),
             preset.getMaxTokens(),
             preset.isActive(),
+            preset.isPrimary(),
             preset.getCreatedAt(),
             preset.getUpdatedAt()
         );
+    }
+
+    private void normalizePrimaryPreset(PromptPreset target) {
+        if (!target.isPrimary()) {
+            return;
+        }
+
+        promptPresetRepository.findAll().stream()
+            .filter(existing -> !existing.getId().equals(target.getId()))
+            .filter(PromptPreset::isPrimary)
+            .forEach(existing -> existing.setPrimary(false));
     }
 }
