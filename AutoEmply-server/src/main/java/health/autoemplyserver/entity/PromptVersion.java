@@ -11,8 +11,6 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import lombok.*;
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(name = "prompt_versions")
@@ -35,8 +33,7 @@ public class PromptVersion {
     @Column(name = "user_prompt_template", nullable = false, columnDefinition = "text")
     private String userPromptTemplate;
 
-    @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "style_rules_json", columnDefinition = "jsonb")
+    @Column(name = "style_rules_json", columnDefinition = "text")
     private String styleRulesJson;
 
     @Column(name = "created_at", nullable = false)
