@@ -62,15 +62,14 @@ class DelphiGeneratorRegressionTest {
         assertThat(pas).contains("MyUnit;");
         assertThat(pas).contains("procedure BuildReport;");
         assertThat(pas).contains("function CalcValue: Integer;");
-        assertThat(pas).contains("procedure Header_TitlePrint(Sender: TObject; var Value: String);");
         assertThat(pas).contains("procedure TFormQREmply25.BuildReport;");
         assertThat(pas).contains("function TFormQREmply25.CalcValue: Integer;");
-        assertThat(pas).contains("procedure TFormQREmply25.Header_TitlePrint(Sender: TObject; var Value: String);");
         assertThat(pas).contains("// 한글 주석 유지");
         assertThat(pas).contains("var\n  counter: Integer;\nbegin\n  counter := 1;");
         assertThat(pas).contains("// TODO");
         assertThat(pas).doesNotContain("begin\n  begin");
         assertThat(pas).doesNotContain("begin\n  var");
+        assertThat(pas).doesNotContain("Header_TitlePrint");
     }
 
     private List<LayoutItem> sampleItems() {
@@ -87,8 +86,6 @@ class DelphiGeneratorRegressionTest {
         label.setBold(true);
         label.setTransparent(false);
         label.setTextColor("#112233");
-        label.setOnPrint("Header_TitlePrint");
-
         LayoutItem duplicate = label.copy();
         duplicate.setName("DuplicateLabel");
 
@@ -130,13 +127,9 @@ class DelphiGeneratorRegressionTest {
         calcValue.setDeclaration("function CalcValue: Integer;");
         calcValue.setBody(new ArrayList<>());
 
-        PasMethodSpec onPrint = new PasMethodSpec();
-        onPrint.setDeclaration("procedure Header_TitlePrint");
-        onPrint.setBody(List.of("begin", "Value := '출력';", "end;"));
-
         PasSpec pasSpec = new PasSpec();
         pasSpec.setUses(List.of("MyUnit;", "Forms"));
-        pasSpec.setMethods(List.of(buildReport, calcValue, onPrint));
+        pasSpec.setMethods(List.of(buildReport, calcValue));
         return pasSpec;
     }
 

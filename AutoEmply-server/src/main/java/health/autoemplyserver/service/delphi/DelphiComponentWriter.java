@@ -17,8 +17,7 @@ public class DelphiComponentWriter {
 
     public void writeLabel(StringBuilder builder, LayoutItem item, List<ComponentRef> components, ComponentCounters counters, Set<String> usedNames) {
         String name = buildComponentName(usedNames, "QRLabel", item.getName(), ++counters.label);
-        String onPrintHandler = resolveOnPrintHandler(item.getOnPrint(), name);
-        components.add(new ComponentRef(name, "TQRLabel", onPrintHandler));
+        components.add(new ComponentRef(name, "TQRLabel"));
         builder.append("      object ").append(name).append(": TQRLabel\n")
             .append("        Left = ").append(item.getLeft()).append('\n')
             .append("        Top = ").append(item.getTop()).append('\n')
@@ -35,22 +34,8 @@ public class DelphiComponentWriter {
             .append("        Font.Size = ").append(item.getFontSize() == null ? 10 : Math.max(6, Math.min(24, item.getFontSize()))).append('\n')
             .append("        Font.Style = ").append(Boolean.TRUE.equals(item.getBold()) ? "[fsBold]" : "[]").append('\n')
             .append("        ParentFont = False\n");
-        if (onPrintHandler != null) {
-            builder.append("        OnPrint = ").append(onPrintHandler).append('\n');
-        }
         builder.append("        ").append(formatter.itemSizeValues(item.getLeft(), item.getTop(), item.getWidth(), item.getHeight()).replace("\n", "\n        ")).append('\n')
             .append("      end\n");
-    }
-
-    private String resolveOnPrintHandler(String onPrint, String componentName) {
-        if (onPrint == null || onPrint.isBlank()) {
-            return null;
-        }
-        String trimmed = onPrint.trim();
-        if (trimmed.equalsIgnoreCase("true")) {
-            return componentName + "Print";
-        }
-        return trimmed.replaceAll("[^A-Za-z0-9_]", "");
     }
 
     public void writeShape(StringBuilder builder, LayoutItem item, List<ComponentRef> components, ComponentCounters counters, Set<String> usedNames) {
