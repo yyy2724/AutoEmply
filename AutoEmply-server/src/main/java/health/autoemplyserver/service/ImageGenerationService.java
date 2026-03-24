@@ -16,7 +16,6 @@ public class ImageGenerationService {
     private final ClaudeClient claudeClient;
     private final DelphiGenerator delphiGenerator;
     private final StructureToLayoutConverter structureToLayoutConverter;
-    private final LayoutPostProcessor layoutPostProcessor;
     private final UploadedVisualPreparer uploadedVisualPreparer;
     private final PromptPresetResolver promptPresetResolver;
 
@@ -24,14 +23,12 @@ public class ImageGenerationService {
         ClaudeClient claudeClient,
         DelphiGenerator delphiGenerator,
         StructureToLayoutConverter structureToLayoutConverter,
-        LayoutPostProcessor layoutPostProcessor,
         UploadedVisualPreparer uploadedVisualPreparer,
         PromptPresetResolver promptPresetResolver
     ) {
         this.claudeClient = claudeClient;
         this.delphiGenerator = delphiGenerator;
         this.structureToLayoutConverter = structureToLayoutConverter;
-        this.layoutPostProcessor = layoutPostProcessor;
         this.uploadedVisualPreparer = uploadedVisualPreparer;
         this.promptPresetResolver = promptPresetResolver;
     }

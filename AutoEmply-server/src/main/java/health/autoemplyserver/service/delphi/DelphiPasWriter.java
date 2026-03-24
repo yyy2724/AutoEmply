@@ -53,7 +53,7 @@ public class DelphiPasWriter {
         // additional methods from AI (non-event)
         for (Map.Entry<String, NormalizedMethod> entry : methodMap.entrySet()) {
             if (eventHandlers.stream().noneMatch(eh -> eh.methodKey().equals(entry.getKey()))) {
-                builder.append("    ").append(entry.getValue().declaration()).append('\n');
+                builder.append("    ").append(stripClassPrefix(entry.getValue().declaration(), className)).append('\n');
             }
         }
 
@@ -215,6 +215,17 @@ public class DelphiPasWriter {
             clean = clean.substring(0, colonIndex).trim();
         }
         return clean;
+    }
+
+    private String stripClassPrefix(String declaration, String className) {
+        String prefix = "T" + className + ".";
+        String result = declaration;
+        // "procedure TFormQREmply03.FormClose(..." → "procedure FormClose(..."
+        int prefixIndex = result.indexOf(prefix);
+        if (prefixIndex >= 0) {
+            result = result.substring(0, prefixIndex) + result.substring(prefixIndex + prefix.length());
+        }
+        return formatter.ensureSemicolon(result);
     }
 
     private record NormalizedMethod(String declaration, List<String> body) {
