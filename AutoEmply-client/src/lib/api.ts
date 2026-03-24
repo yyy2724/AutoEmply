@@ -15,7 +15,7 @@ export class ApiRequestError extends Error {
 }
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080'
-const API_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS ?? 150000)
+const API_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS ?? 360000)
 
 async function parseBody(response: Response): Promise<unknown> {
   const contentType = response.headers.get('content-type') ?? ''
