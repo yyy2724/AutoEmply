@@ -10,7 +10,6 @@ import health.autoemplyserver.service.report.ReportTemplateContentReader;
 import health.autoemplyserver.service.report.ReportTemplateContentReader.PreviewContent;
 import health.autoemplyserver.support.exception.BadRequestException;
 import health.autoemplyserver.support.exception.NotFoundException;
-import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -90,15 +89,11 @@ public class ReportTemplateService {
         PreviewContent previewContent = reportTemplateContentReader.readPreview(previewFile);
 
         ReportTemplate template = new ReportTemplate();
-        OffsetDateTime now = OffsetDateTime.now();
-        template.setId(UUID.randomUUID());
         template.setName(name.trim());
         template.setCategory(category.trim());
         template.setDfmContent(dfmContent);
         template.setPasContent(pasContent);
         template.setOriginalFormName(originalFormName);
-        template.setCreatedAt(now);
-        template.setUpdatedAt(now);
         template.setPreviewData(previewContent.data());
         template.setPreviewContentType(previewContent.contentType());
 
