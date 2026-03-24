@@ -17,6 +17,8 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(name = "prompt_presets")
@@ -39,7 +41,8 @@ public class PromptPreset {
     @Column(name = "user_prompt_template", nullable = false, columnDefinition = "text")
     private String userPromptTemplate;
 
-    @Column(name = "style_rules_json", columnDefinition = "text")
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "style_rules_json", columnDefinition = "jsonb")
     private String styleRulesJson;
 
     @Column(name = "sample_template_ids_json", columnDefinition = "text")
