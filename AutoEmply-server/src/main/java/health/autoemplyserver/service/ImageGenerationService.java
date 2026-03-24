@@ -40,7 +40,7 @@ public class ImageGenerationService {
         PreparedVisual visual = uploadedVisualPreparer.prepare(formName, image);
         ResolvedPromptPreset preset = promptPresetResolver.resolve(presetIds, sampleTemplateSetIds);
         LayoutSpec layoutSpec = claudeClient.generateLayoutSpec(visual.formName(), visual.mediaType(), visual.base64Data(), preset);
-        return layoutPostProcessor.process(layoutSpec);
+        return layoutSpec;
     }
 
     public byte[] exportZip(String formName, MultipartFile image, List<String> presetIds, List<String> sampleTemplateSetIds) {
@@ -61,6 +61,6 @@ public class ImageGenerationService {
 
     public LayoutSpec generateLayoutSpecFromStructure(String formName, MultipartFile image, List<String> presetIds, List<String> sampleTemplateSetIds) {
         FormStructure structure = generateStructure(formName, image, presetIds, sampleTemplateSetIds);
-        return layoutPostProcessor.process(structureToLayoutConverter.convert(structure));
+        return structureToLayoutConverter.convert(structure);
     }
 }
