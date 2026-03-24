@@ -1,6 +1,5 @@
-import { ActionIcon, Alert, Button, ComboboxItem, FileInput, Grid, Group, Image, ScrollArea, Select, Stack, Table, Tabs, Text, TextInput, Title } from '@mantine/core'
+import { ActionIcon, Alert, Autocomplete, Button, FileInput, Grid, Group, Image, ScrollArea, Stack, Table, Tabs, Text, TextInput, Title } from '@mantine/core'
 import { IconDownload, IconPhoto, IconRefresh, IconTrash } from '@tabler/icons-react'
-import { useMemo } from 'react'
 import PageSection from '../components/PageSection'
 import { useTemplateLibrary } from '../hooks/useTemplateLibrary'
 import { buildApiUrl } from '../lib/api'
@@ -36,13 +35,6 @@ function LibraryPage() {
     removeTemplate,
   } = useTemplateLibrary()
 
-  const categoryOptions = useMemo<ComboboxItem[]>(() => {
-    const options = categories.map((category) => ({ value: category, label: category }))
-    if (uploadCategory && !categories.some((c) => c.toLowerCase() === uploadCategory.toLowerCase())) {
-      options.unshift({ value: uploadCategory, label: `+ ${uploadCategory}` })
-    }
-    return options
-  }, [categories, uploadCategory])
 
   return (
     <Grid gutter="lg">
@@ -95,17 +87,12 @@ function LibraryPage() {
           <PageSection title="템플릿 업로드">
             <Stack>
               <TextInput label="템플릿 이름" value={uploadName} onChange={(event) => setUploadName(event.currentTarget.value)} />
-              <Select
+              <Autocomplete
                 label="카테고리"
-                placeholder="기존 카테고리를 선택하거나 새 이름을 입력"
-                data={categoryOptions}
-                value={uploadCategory || null}
-                onChange={(value) => setUploadCategory(value ?? '')}
-                onSearchChange={setUploadCategory}
-                searchValue={uploadCategory}
-                searchable
-                clearable
-                nothingFoundMessage="일치하는 카테고리가 없습니다"
+                placeholder="카테고리를 선택하거나 새 이름을 입력"
+                data={categories}
+                value={uploadCategory}
+                onChange={setUploadCategory}
               />
               <FileInput label="DFM 파일" value={dfmFile} onChange={setDfmFile} accept=".dfm" />
               <FileInput label="PAS 파일" value={pasFile} onChange={setPasFile} accept=".pas" />
