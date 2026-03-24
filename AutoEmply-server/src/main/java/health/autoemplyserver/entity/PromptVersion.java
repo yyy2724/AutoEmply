@@ -33,7 +33,8 @@ public class PromptVersion {
     @Column(name = "user_prompt_template", nullable = false, columnDefinition = "text")
     private String userPromptTemplate;
 
-    @Column(name = "style_rules_json", columnDefinition = "text")
+    @Column(name = "style_rules_json", columnDefinition = "jsonb")
+    @org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.JSON)
     private String styleRulesJson;
 
     @Column(name = "created_at", nullable = false)
