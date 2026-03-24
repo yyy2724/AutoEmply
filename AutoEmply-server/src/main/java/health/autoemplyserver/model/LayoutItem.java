@@ -20,6 +20,7 @@ public class LayoutItem {
     private String fillColor;
     private Boolean filled;
     private Boolean stretch;
+    private String onPrint;
 
     public LayoutItem copy() {
         LayoutItem copy = new LayoutItem();
@@ -41,6 +42,7 @@ public class LayoutItem {
         copy.fillColor = fillColor;
         copy.filled = filled;
         copy.stretch = stretch;
+        copy.onPrint = onPrint;
         return copy;
     }
 
@@ -80,4 +82,6 @@ public class LayoutItem {
     public void setFilled(Boolean filled) { this.filled = filled; }
     public Boolean getStretch() { return stretch; }
     public void setStretch(Boolean stretch) { this.stretch = stretch; }
+    public String getOnPrint() { return onPrint; }
+    public void setOnPrint(String onPrint) { this.onPrint = onPrint; }
 }

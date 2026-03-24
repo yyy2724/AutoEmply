@@ -37,7 +37,8 @@ public class ClaudeToolSchemas {
                                 "strokeColor", map("type", "string"),
                                 "fillColor", map("type", "string"),
                                 "filled", map("type", "boolean"),
-                                "stretch", map("type", "boolean")
+                                "stretch", map("type", "boolean"),
+                                "onPrint", map("type", "string", "description", "Event handler name for OnPrint event. If set, DFM will include OnPrint=<value> and PAS will include the matching procedure. Use component name + 'Print' convention, e.g. 'Qlb3_PTNAMPrint'.")
                             ),
                             "required", List.of("type", "left", "top", "width", "height"),
                             "additionalProperties", false

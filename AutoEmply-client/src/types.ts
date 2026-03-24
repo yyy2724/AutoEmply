@@ -71,6 +71,7 @@ export type LayoutItem = {
   fillColor?: string
   filled?: boolean
   stretch?: boolean
+  onPrint?: string
 }
 
 export type LayoutSpec = {
