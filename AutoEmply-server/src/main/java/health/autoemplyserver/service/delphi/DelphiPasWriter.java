@@ -61,7 +61,7 @@ public class DelphiPasWriter {
 
         // var section
         builder.append("var\n");
-        builder.append("  ").append(formName).append(": T").append(className).append(";\n\n");
+        builder.append("  ").append(className).append(": T").append(className).append(";\n\n");
 
         // implementation
         builder.append("implementation\n\n");

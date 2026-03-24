@@ -36,10 +36,13 @@ function LibraryPage() {
     removeTemplate,
   } = useTemplateLibrary()
 
-  const categoryOptions = useMemo<ComboboxItem[]>(
-    () => categories.map((category) => ({ value: category, label: category })),
-    [categories],
-  )
+  const categoryOptions = useMemo<ComboboxItem[]>(() => {
+    const options = categories.map((category) => ({ value: category, label: category }))
+    if (uploadCategory && !categories.some((c) => c.toLowerCase() === uploadCategory.toLowerCase())) {
+      options.unshift({ value: uploadCategory, label: `+ ${uploadCategory}` })
+    }
+    return options
+  }, [categories, uploadCategory])
 
   return (
     <Grid gutter="lg">

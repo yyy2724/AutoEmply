@@ -74,7 +74,7 @@ public class DelphiGenerator {
         items = clampItemsToBand(items, bandWidth, bandHeight);
 
         StringBuilder builder = new StringBuilder();
-        builder.append("object ").append(formName).append(": T").append(className).append('\n')
+        builder.append("object ").append(className).append(": T").append(className).append('\n')
             .append("  Left = 0\n")
             .append("  Top = 0\n")
             .append("  Width = 800\n")

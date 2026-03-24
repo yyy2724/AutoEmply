@@ -34,7 +34,7 @@ public class PromptPresetService {
     private static final String DEFAULT_MODEL = "claude-sonnet-4-6";
     private static final BigDecimal DEFAULT_TEMPERATURE = BigDecimal.ZERO;
     private static final int DEFAULT_MAX_TOKENS = 32000;
-    private static final int MAX_SAMPLE_TEMPLATES = 3;
+    private static final int MAX_SAMPLE_TEMPLATES = 5;
 
     private final PromptPresetRepository promptPresetRepository;
     private final ReportTemplateRepository reportTemplateRepository;
