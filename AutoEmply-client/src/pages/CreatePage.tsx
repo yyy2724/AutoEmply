@@ -1,4 +1,4 @@
-import { Alert, Button, Code, FileInput, Grid, Group, List, Stack, Text, TextInput, Textarea } from '@mantine/core'
+import { Alert, Button, Code, FileInput, Grid, Group, List, MultiSelect, Select, Stack, Text, TextInput, Textarea } from '@mantine/core'
 import { IconAlertTriangle, IconInfoCircle, IconRefresh } from '@tabler/icons-react'
 import PageSection from '../components/PageSection'
 import { useCreateWorkspace } from '../hooks/useCreateWorkspace'
@@ -13,13 +13,31 @@ function CreatePage() {
     selectedFile,
     presets,
     sampleSets,
+    primaryPresetId,
+    referencePresetIds,
+    primarySampleSetId,
+    referenceSampleSetIds,
     setFormName,
     setLayoutSpecJson,
     setSelectedFile,
+    setPrimaryPresetId,
+    setReferencePresetIds,
+    setPrimarySampleSetId,
+    setReferenceSampleSetIds,
     exportFromImage,
     exportFromJson,
     generateJson,
   } = useCreateWorkspace()
+
+  const presetOptions = presets.map((preset) => ({
+    value: preset.id,
+    label: `${preset.name}${preset.active ?? preset.isActive ? ' [active]' : ''}`,
+  }))
+
+  const sampleSetOptions = sampleSets.map((sampleSet) => ({
+    value: sampleSet.id,
+    label: `${sampleSet.name}${sampleSet.active ?? sampleSet.isActive ? ' [active]' : ''}`,
+  }))
 
   const retryHandler = status.retryAction === 'generate-json'
     ? generateJson
@@ -42,13 +60,47 @@ function CreatePage() {
               onChange={setSelectedFile}
               accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,image/jpeg,image/png,image/gif,image/webp,application/pdf"
             />
+            <Select
+              label="Primary language preset"
+              description="This preset is sent first and treated as the main prompt."
+              data={presetOptions}
+              value={primaryPresetId}
+              onChange={setPrimaryPresetId}
+              clearable
+            />
+            <MultiSelect
+              label="Reference language presets"
+              description="These presets are appended after the primary preset as references."
+              data={presetOptions.filter((option) => option.value !== primaryPresetId)}
+              value={referencePresetIds.filter((id) => id !== primaryPresetId)}
+              onChange={setReferencePresetIds}
+              searchable
+              clearable
+            />
+            <Select
+              label="Primary report preset"
+              description="This report preset set is sent first."
+              data={sampleSetOptions}
+              value={primarySampleSetId}
+              onChange={setPrimarySampleSetId}
+              clearable
+            />
+            <MultiSelect
+              label="Reference report presets"
+              description="Additional report preset sets are sent after the primary selection."
+              data={sampleSetOptions.filter((option) => option.value !== primarySampleSetId)}
+              value={referenceSampleSetIds.filter((id) => id !== primarySampleSetId)}
+              onChange={setReferenceSampleSetIds}
+              searchable
+              clearable
+            />
             <Alert color="gray" title="Preset payload">
               <Stack gap={6}>
                 <Text size="sm">
-                  Generate requests now send all saved language presets ({presets.length}) and all saved report preset sets ({sampleSets.length}) to the API.
+                  The selected primary preset is sent first. Additional selections are sent after it as references.
                 </Text>
                 <Text size="sm" c="dimmed">
-                  Per-request selection is disabled here. Manage the full preset list from the preset management page.
+                  If nothing is selected, the request is sent without that preset type.
                 </Text>
               </Stack>
             </Alert>

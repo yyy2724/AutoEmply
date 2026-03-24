@@ -19,6 +19,10 @@ export function useCreateWorkspace() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [presets, setPresets] = useState<PromptPreset[]>([])
   const [sampleSets, setSampleSets] = useState<SampleTemplateSet[]>([])
+  const [primaryPresetId, setPrimaryPresetId] = useState<string | null>(null)
+  const [referencePresetIds, setReferencePresetIds] = useState<string[]>([])
+  const [primarySampleSetId, setPrimarySampleSetId] = useState<string | null>(null)
+  const [referenceSampleSetIds, setReferenceSampleSetIds] = useState<string[]>([])
 
   useEffect(() => {
     fetchAiVersion()
@@ -26,11 +30,21 @@ export function useCreateWorkspace() {
       .catch(() => setAiVersion('확인 불가'))
 
     fetchPresets()
-      .then((data) => setPresets(data))
+      .then((data) => {
+        setPresets(data)
+        const nextPrimaryId = pickDefaultSelection(data)?.id ?? null
+        setPrimaryPresetId(nextPrimaryId)
+        setReferencePresetIds([])
+      })
       .catch(() => setPresets([]))
 
     fetchSampleTemplateSets()
-      .then((data) => setSampleSets(data))
+      .then((data) => {
+        setSampleSets(data)
+        const nextPrimaryId = pickDefaultSelection(data)?.id ?? null
+        setPrimarySampleSetId(nextPrimaryId)
+        setReferenceSampleSetIds([])
+      })
       .catch(() => setSampleSets([]))
   }, [])
 
@@ -77,8 +91,8 @@ export function useCreateWorkspace() {
       const data = await generateLayoutFromImage(
         formName,
         selectedFile,
-        presets.filter((preset) => preset.active ?? preset.isActive).map((preset) => preset.id),
-        sampleSets.filter((sampleSet) => sampleSet.active ?? sampleSet.isActive).map((sampleSet) => sampleSet.id),
+        buildOrderedIds(primaryPresetId, referencePresetIds),
+        buildOrderedIds(primarySampleSetId, referenceSampleSetIds),
       )
       setLayoutSpecJson(JSON.stringify(data, null, 2))
       setInfo('LayoutSpec JSON 생성이 완료되었습니다.')
@@ -102,8 +116,8 @@ export function useCreateWorkspace() {
       const blob = await exportZipFromImage(
         formName,
         selectedFile,
-        presets.filter((preset) => preset.active ?? preset.isActive).map((preset) => preset.id),
-        sampleSets.filter((sampleSet) => sampleSet.active ?? sampleSet.isActive).map((sampleSet) => sampleSet.id),
+        buildOrderedIds(primaryPresetId, referencePresetIds),
+        buildOrderedIds(primarySampleSetId, referenceSampleSetIds),
       )
       downloadBlob(blob, `${formName}.zip`)
       setInfo('이미지 기반 ZIP 내보내기를 시작했습니다.')
@@ -139,13 +153,41 @@ export function useCreateWorkspace() {
     selectedFile,
     presets,
     sampleSets,
+    primaryPresetId,
+    referencePresetIds,
+    primarySampleSetId,
+    referenceSampleSetIds,
     setFormName,
     setLayoutSpecJson,
     setSelectedFile,
+    setPrimaryPresetId,
+    setReferencePresetIds,
+    setPrimarySampleSetId,
+    setReferenceSampleSetIds,
     exportFromImage,
     exportFromJson,
     generateJson,
   }
+}
+
+function buildOrderedIds(primaryId: string | null, referenceIds: string[]) {
+  return [primaryId, ...referenceIds]
+    .filter((value): value is string => Boolean(value))
+    .filter((value, index, values) => values.indexOf(value) === index)
+}
+
+function pickDefaultSelection<T extends { id: string; updatedAt: string; active?: boolean; isActive?: boolean }>(items: T[]) {
+  const activeItems = items.filter((item) => item.active ?? item.isActive)
+  const pool = activeItems.length > 0 ? activeItems : items
+  let latest: T | null = null
+
+  for (const item of pool) {
+    if (!latest || Date.parse(item.updatedAt) > Date.parse(latest.updatedAt)) {
+      latest = item
+    }
+  }
+
+  return latest
 }
 
 function mapApiErrorMessage(error: ApiRequestError, fallbackMessage: string) {
