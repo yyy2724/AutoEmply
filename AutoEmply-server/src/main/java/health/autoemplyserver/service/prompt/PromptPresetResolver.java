@@ -16,10 +16,9 @@ public class PromptPresetResolver {
         this.promptPresetService = promptPresetService;
     }
 
-    public ResolvedPromptPreset resolve(List<String> presetIds, List<String> sampleTemplateSetIds) {
+    public ResolvedPromptPreset resolve(List<String> presetIds) {
         List<UUID> parsedPresetIds = parseUuids(presetIds, "presetIds");
-        List<UUID> parsedSetIds = parseUuids(sampleTemplateSetIds, "sampleTemplateSetIds");
-        ResolvedPromptPreset preset = promptPresetService.resolve(parsedPresetIds, parsedSetIds);
+        ResolvedPromptPreset preset = promptPresetService.resolve(parsedPresetIds);
         if (preset == null) {
             throw new NotFoundException("Prompt preset not found.");
         }

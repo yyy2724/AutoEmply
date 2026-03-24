@@ -2,10 +2,9 @@ import { notifications } from '@mantine/notifications'
 import { useEffect, useState } from 'react'
 import { exportZipFromImage, exportZipFromLayout, fetchAiVersion, generateLayoutFromImage } from '../features/create/api'
 import { fetchPresets } from '../features/prompts/api'
-import { fetchSampleTemplateSets } from '../features/sample-template-sets/api'
 import { ApiRequestError } from '../lib/api'
 import { downloadBlob } from '../lib/download'
-import type { LayoutSpec, PromptPreset, SampleTemplateSet, WorkspaceStatus } from '../types'
+import type { LayoutSpec, PromptPreset, WorkspaceStatus } from '../types'
 
 const defaultJson = '{\n  "items": []\n}'
 const emptyStatus: WorkspaceStatus = { tone: 'info', title: '', message: '', details: [], retryable: false, retryAction: null }
@@ -18,7 +17,6 @@ export function useCreateWorkspace() {
   const [busy, setBusy] = useState(false)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [presets, setPresets] = useState<PromptPreset[]>([])
-  const [sampleSets, setSampleSets] = useState<SampleTemplateSet[]>([])
 
   useEffect(() => {
     fetchAiVersion()
@@ -28,10 +26,6 @@ export function useCreateWorkspace() {
     fetchPresets()
       .then((data) => setPresets(data))
       .catch(() => setPresets([]))
-
-    fetchSampleTemplateSets()
-      .then((data) => setSampleSets(data))
-      .catch(() => setSampleSets([]))
   }, [])
 
   function setInfo(message: string) {
@@ -78,7 +72,6 @@ export function useCreateWorkspace() {
         formName,
         selectedFile,
         getGenerationPresetIds(presets),
-        getGenerationSampleSetIds(sampleSets),
       )
       setLayoutSpecJson(JSON.stringify(data, null, 2))
       setInfo('LayoutSpec JSON 생성이 완료되었습니다.')
@@ -103,7 +96,6 @@ export function useCreateWorkspace() {
         formName,
         selectedFile,
         getGenerationPresetIds(presets),
-        getGenerationSampleSetIds(sampleSets),
       )
       downloadBlob(blob, `${formName}.zip`)
       setInfo('이미지 기반 ZIP 내보내기를 시작했습니다.')
@@ -138,7 +130,6 @@ export function useCreateWorkspace() {
     status,
     selectedFile,
     presets,
-    sampleSets,
     setFormName,
     setLayoutSpecJson,
     setSelectedFile,
@@ -150,10 +141,6 @@ export function useCreateWorkspace() {
 
 function getGenerationPresetIds(presets: PromptPreset[]) {
   return orderActiveItems(presets, (item) => item.primary ?? item.isPrimary).map((item) => item.id)
-}
-
-function getGenerationSampleSetIds(sampleSets: SampleTemplateSet[]) {
-  return orderActiveItems(sampleSets, (item) => item.primary ?? item.isPrimary).map((item) => item.id)
 }
 
 function orderActiveItems<T extends { id: string; updatedAt: string; active?: boolean; isActive?: boolean }>(

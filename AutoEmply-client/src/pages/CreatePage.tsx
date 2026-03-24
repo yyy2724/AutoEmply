@@ -12,7 +12,6 @@ function CreatePage() {
     status,
     selectedFile,
     presets,
-    sampleSets,
     setFormName,
     setLayoutSpecJson,
     setSelectedFile,
@@ -30,7 +29,6 @@ function CreatePage() {
         : null
 
   const activePresetCount = presets.filter((preset) => preset.active ?? preset.isActive).length
-  const activeSampleSetCount = sampleSets.filter((sampleSet) => sampleSet.active ?? sampleSet.isActive).length
 
   return (
     <Grid gutter="lg">
@@ -48,7 +46,7 @@ function CreatePage() {
             <Alert color="gray" title="Preset payload">
               <Stack gap={6}>
                 <Text size="sm">
-                  Generate requests send all active language presets ({activePresetCount}) and all active report preset sets ({activeSampleSetCount}) to the API.
+                  Generate requests send all active language presets ({activePresetCount}) to the API.
                 </Text>
                 <Text size="sm" c="dimmed">
                   Items marked as representative on the preset management page are sent first.

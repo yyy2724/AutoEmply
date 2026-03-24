@@ -3,7 +3,6 @@ package health.autoemplyserver.dto.prompt;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
-import java.util.List;
 import java.util.UUID;
 
 public record PromptPresetDto(
@@ -12,7 +11,6 @@ public record PromptPresetDto(
     String systemPrompt,
     String userPromptTemplate,
     String styleRulesJson,
-    List<UUID> sampleTemplateIds,
     String model,
     BigDecimal temperature,
     Integer maxTokens,

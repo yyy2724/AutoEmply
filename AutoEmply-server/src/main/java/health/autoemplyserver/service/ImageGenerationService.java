@@ -15,6 +15,7 @@ public class ImageGenerationService {
 
     private final ClaudeClient claudeClient;
     private final DelphiGenerator delphiGenerator;
+    private final LayoutPostProcessor layoutPostProcessor;
     private final StructureToLayoutConverter structureToLayoutConverter;
     private final UploadedVisualPreparer uploadedVisualPreparer;
     private final PromptPresetResolver promptPresetResolver;
@@ -22,42 +23,44 @@ public class ImageGenerationService {
     public ImageGenerationService(
         ClaudeClient claudeClient,
         DelphiGenerator delphiGenerator,
+        LayoutPostProcessor layoutPostProcessor,
         StructureToLayoutConverter structureToLayoutConverter,
         UploadedVisualPreparer uploadedVisualPreparer,
         PromptPresetResolver promptPresetResolver
     ) {
         this.claudeClient = claudeClient;
         this.delphiGenerator = delphiGenerator;
+        this.layoutPostProcessor = layoutPostProcessor;
         this.structureToLayoutConverter = structureToLayoutConverter;
         this.uploadedVisualPreparer = uploadedVisualPreparer;
         this.promptPresetResolver = promptPresetResolver;
     }
 
-    public LayoutSpec generateLayoutSpec(String formName, MultipartFile image, List<String> presetIds, List<String> sampleTemplateSetIds) {
+    public LayoutSpec generateLayoutSpec(String formName, MultipartFile image, List<String> presetIds) {
         PreparedVisual visual = uploadedVisualPreparer.prepare(formName, image);
-        ResolvedPromptPreset preset = promptPresetResolver.resolve(presetIds, sampleTemplateSetIds);
+        ResolvedPromptPreset preset = promptPresetResolver.resolve(presetIds);
         LayoutSpec layoutSpec = claudeClient.generateLayoutSpec(visual.formName(), visual.mediaType(), visual.base64Data(), preset);
-        return layoutSpec;
+        return layoutPostProcessor.process(layoutSpec);
     }
 
-    public byte[] exportZip(String formName, MultipartFile image, List<String> presetIds, List<String> sampleTemplateSetIds) {
-        LayoutSpec layoutSpec = generateLayoutSpec(formName, image, presetIds, sampleTemplateSetIds);
+    public byte[] exportZip(String formName, MultipartFile image, List<String> presetIds) {
+        LayoutSpec layoutSpec = generateLayoutSpec(formName, image, presetIds);
         return delphiGenerator.generateZip(formName.trim(), layoutSpec);
     }
 
-    public byte[] exportZipFromStructure(String formName, MultipartFile image, List<String> presetIds, List<String> sampleTemplateSetIds) {
-        LayoutSpec layoutSpec = generateLayoutSpecFromStructure(formName, image, presetIds, sampleTemplateSetIds);
+    public byte[] exportZipFromStructure(String formName, MultipartFile image, List<String> presetIds) {
+        LayoutSpec layoutSpec = generateLayoutSpecFromStructure(formName, image, presetIds);
         return delphiGenerator.generateZip(formName.trim(), layoutSpec);
     }
 
-    public FormStructure generateStructure(String formName, MultipartFile image, List<String> presetIds, List<String> sampleTemplateSetIds) {
+    public FormStructure generateStructure(String formName, MultipartFile image, List<String> presetIds) {
         PreparedVisual visual = uploadedVisualPreparer.prepare(formName, image);
-        ResolvedPromptPreset preset = promptPresetResolver.resolve(presetIds, sampleTemplateSetIds);
+        ResolvedPromptPreset preset = promptPresetResolver.resolve(presetIds);
         return claudeClient.generateFormStructure(visual.formName(), visual.mediaType(), visual.base64Data(), preset);
     }
 
-    public LayoutSpec generateLayoutSpecFromStructure(String formName, MultipartFile image, List<String> presetIds, List<String> sampleTemplateSetIds) {
-        FormStructure structure = generateStructure(formName, image, presetIds, sampleTemplateSetIds);
-        return structureToLayoutConverter.convert(structure);
+    public LayoutSpec generateLayoutSpecFromStructure(String formName, MultipartFile image, List<String> presetIds) {
+        FormStructure structure = generateStructure(formName, image, presetIds);
+        return layoutPostProcessor.process(structureToLayoutConverter.convert(structure));
     }
 }
