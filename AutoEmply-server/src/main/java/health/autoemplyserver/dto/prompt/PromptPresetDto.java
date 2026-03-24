@@ -1,5 +1,6 @@
 package health.autoemplyserver.dto.prompt;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -15,8 +16,8 @@ public record PromptPresetDto(
     String model,
     BigDecimal temperature,
     Integer maxTokens,
-    boolean isActive,
-    boolean isPrimary,
+    @JsonProperty("isActive") boolean isActive,
+    @JsonProperty("isPrimary") boolean isPrimary,
     OffsetDateTime createdAt,
     OffsetDateTime updatedAt
 ) {

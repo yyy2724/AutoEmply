@@ -1,6 +1,6 @@
 package health.autoemplyserver.dto.prompt;
 
-import com.fasterxml.jackson.annotation.JsonAlias;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
@@ -15,9 +15,9 @@ public record CreatePromptPresetRequest(
     String model,
     BigDecimal temperature,
     Integer maxTokens,
-    @JsonAlias("active")
+    @JsonProperty("isActive")
     boolean isActive,
-    @JsonAlias("primary")
+    @JsonProperty("isPrimary")
     boolean isPrimary
 ) {
 }

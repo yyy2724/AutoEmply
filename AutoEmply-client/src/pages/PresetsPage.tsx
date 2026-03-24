@@ -83,7 +83,7 @@ function PresetsPage() {
     label: `${template.name} [${template.category}]`,
   }))
 
-  const activeSampleSetCount = sampleSets.filter((sampleSet) => sampleSet.active ?? sampleSet.isActive).length
+  const activeSampleSetCount = sampleSets.filter((sampleSet) => sampleSet.isActive).length
 
   return (
     <Tabs defaultValue="language-presets">
@@ -125,7 +125,7 @@ function PresetsPage() {
                           }}
                         >
                           <Table.Td>{preset.name}</Table.Td>
-                          <Table.Td>{preset.active ?? preset.isActive ? 'Active' : 'Inactive'}</Table.Td>
+                          <Table.Td>{preset.isActive ? 'Active' : 'Inactive'}</Table.Td>
                           <Table.Td>{new Date(preset.updatedAt).toLocaleString()}</Table.Td>
                         </Table.Tr>
                       ))}
@@ -266,7 +266,7 @@ function PresetsPage() {
                           }}
                         >
                           <Table.Td>{sampleSet.name}</Table.Td>
-                          <Table.Td>{sampleSet.active ?? sampleSet.isActive ? 'Active' : 'Inactive'}</Table.Td>
+                          <Table.Td>{sampleSet.isActive ? 'Active' : 'Inactive'}</Table.Td>
                           <Table.Td>{sampleSet.templateIds.length}</Table.Td>
                           <Table.Td>{new Date(sampleSet.updatedAt).toLocaleString()}</Table.Td>
                         </Table.Tr>

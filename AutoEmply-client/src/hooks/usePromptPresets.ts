@@ -117,8 +117,8 @@ export function usePromptPresets() {
       model: preset.model ?? '',
       temperature: preset.temperature ?? 0,
       maxTokens: preset.maxTokens ?? 32000,
-      isActive: preset.active ?? preset.isActive ?? false,
-      isPrimary: preset.primary ?? preset.isPrimary ?? false,
+      isActive: preset.isActive,
+      isPrimary: preset.isPrimary,
     })
   }
 
@@ -127,14 +127,14 @@ export function usePromptPresets() {
     setSampleSetForm({
       name: sampleSet.name,
       templateIds: sampleSet.templateIds,
-      isActive: sampleSet.active ?? sampleSet.isActive ?? false,
-      isPrimary: sampleSet.primary ?? sampleSet.isPrimary ?? false,
+      isActive: sampleSet.isActive,
+      isPrimary: sampleSet.isPrimary,
     })
   }
 
   function resetEditor() {
     setEditingId(null)
-    const basePreset = presets.find((preset) => preset.active ?? preset.isActive) ?? presets[0] ?? null
+    const basePreset = presets.find((preset) => preset.isActive) ?? presets[0] ?? null
     setForm(basePreset ? createPresetFormFromSource(basePreset) : createDefaultPresetForm())
   }
 
@@ -237,7 +237,7 @@ export function usePromptPresets() {
   }
 
   const activeCount = useMemo(
-    () => presets.filter((preset) => preset.active ?? preset.isActive).length,
+    () => presets.filter((preset) => preset.isActive).length,
     [presets],
   )
 

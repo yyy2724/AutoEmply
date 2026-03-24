@@ -16,10 +16,8 @@ export type PromptPreset = {
   model?: string | null
   temperature?: number | null
   maxTokens?: number | null
-  active?: boolean
-  isActive?: boolean
-  primary?: boolean
-  isPrimary?: boolean
+  isActive: boolean
+  isPrimary: boolean
   createdAt: string
   updatedAt: string
 }
@@ -41,10 +39,8 @@ export type SampleTemplateSet = {
   id: string
   name: string
   templateIds: string[]
-  active?: boolean
-  isActive?: boolean
-  primary?: boolean
-  isPrimary?: boolean
+  isActive: boolean
+  isPrimary: boolean
   createdAt: string
   updatedAt: string
 }

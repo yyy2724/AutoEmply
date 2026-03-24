@@ -38,7 +38,7 @@ class PromptsControllerIntegrationTest {
               "model": "claude-test",
               "temperature": 0.2,
               "maxTokens": 4096,
-              "active": true
+              "isActive": true
             }
             """;
 
@@ -67,7 +67,7 @@ class PromptsControllerIntegrationTest {
               "model": "claude-test",
               "temperature": 0.3,
               "maxTokens": 8192,
-              "active": false
+              "isActive": false
             }
             """;
 
@@ -94,7 +94,7 @@ class PromptsControllerIntegrationTest {
               "systemPrompt": "system",
               "userPromptTemplate": "user",
               "styleRulesJson": "{broken}",
-              "active": true
+              "isActive": true
             }
             """;
 
