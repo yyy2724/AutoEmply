@@ -224,11 +224,12 @@ public class DelphiPasWriter {
 
     private void appendMethodBody(StringBuilder builder, MethodBody body) {
         for (String line : body.declarations()) {
-            builder.append(line).append('\n');
+            builder.append(formatter.encodePascalStringLiterals(line)).append('\n');
         }
         builder.append("begin\n");
         for (String line : body.statements()) {
-            builder.append(line.isBlank() ? "" : "  " + line).append('\n');
+            String encodedLine = formatter.encodePascalStringLiterals(line);
+            builder.append(encodedLine.isBlank() ? "" : "  " + encodedLine).append('\n');
         }
         builder.append("end;\n");
     }

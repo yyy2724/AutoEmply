@@ -9,6 +9,7 @@ import health.autoemplyserver.service.delphi.DelphiValueFormatter;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -23,6 +24,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class DelphiGenerator {
 
+    private static final Charset DELPHI_CHARSET = Charset.forName("MS949");
     private static final int QUICK_REP_WIDTH = 794;
     private static final int MAX_BAND_WIDTH = 794;
     private static final int MAX_BAND_HEIGHT = 6000;
@@ -329,7 +331,7 @@ public class DelphiGenerator {
 
     private void writeEntry(ZipOutputStream zipOutputStream, String name, String content) throws IOException {
         zipOutputStream.putNextEntry(new ZipEntry(name));
-        OutputStreamWriter writer = new OutputStreamWriter(zipOutputStream, StandardCharsets.UTF_8);
+        OutputStreamWriter writer = new OutputStreamWriter(zipOutputStream, DELPHI_CHARSET);
         writer.write(content);
         writer.flush();
         zipOutputStream.closeEntry();

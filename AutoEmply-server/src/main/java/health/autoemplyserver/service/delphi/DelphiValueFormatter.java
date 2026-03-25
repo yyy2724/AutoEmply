@@ -32,6 +32,49 @@ public class DelphiValueFormatter {
         return builder.isEmpty() ? "''" : builder.toString();
     }
 
+    public String encodePascalStringLiterals(String source) {
+        if (source == null || source.isEmpty()) {
+            return source;
+        }
+
+        StringBuilder result = new StringBuilder();
+        StringBuilder literal = new StringBuilder();
+        boolean inString = false;
+
+        for (int index = 0; index < source.length(); index++) {
+            char current = source.charAt(index);
+
+            if (!inString) {
+                if (current == '\'') {
+                    inString = true;
+                    literal.setLength(0);
+                } else {
+                    result.append(current);
+                }
+                continue;
+            }
+
+            if (current == '\'') {
+                if (index + 1 < source.length() && source.charAt(index + 1) == '\'') {
+                    literal.append('\'');
+                    index++;
+                } else {
+                    result.append(encodeString(literal.toString()));
+                    inString = false;
+                }
+                continue;
+            }
+
+            literal.append(current);
+        }
+
+        if (inString) {
+            result.append('\'').append(literal);
+        }
+
+        return result.toString();
+    }
+
     public String pixelsToMm(int value, int scale) {
         return PIXEL_TO_MM.multiply(BigDecimal.valueOf(value)).setScale(scale, RoundingMode.HALF_UP).toPlainString();
     }

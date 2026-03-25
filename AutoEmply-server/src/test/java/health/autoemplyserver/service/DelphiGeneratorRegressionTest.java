@@ -11,7 +11,7 @@ import health.autoemplyserver.service.delphi.DelphiPasWriter;
 import health.autoemplyserver.service.delphi.DelphiValueFormatter;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
+import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -21,6 +21,7 @@ import org.junit.jupiter.api.Test;
 
 class DelphiGeneratorRegressionTest {
 
+    private static final Charset DELPHI_CHARSET = Charset.forName("MS949");
     private final DelphiValueFormatter formatter = new DelphiValueFormatter();
     private final DelphiGenerator generator = new DelphiGenerator(
         formatter,
@@ -141,7 +142,7 @@ class DelphiGeneratorRegressionTest {
                 if (entry == null) {
                     return entries;
                 }
-                entries.put(entry.getName(), new String(zipInputStream.readAllBytes(), StandardCharsets.UTF_8));
+                entries.put(entry.getName(), new String(zipInputStream.readAllBytes(), DELPHI_CHARSET));
             }
         }
     }
