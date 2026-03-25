@@ -1,14 +1,17 @@
-import { Alert, Button, Code, FileInput, Grid, Group, List, Stack, Text, TextInput, Textarea } from '@mantine/core'
+import { Alert, Button, Code, FileInput, Grid, Group, List, Select, Stack, Text, TextInput, Textarea } from '@mantine/core'
 import { IconAlertTriangle, IconInfoCircle, IconRefresh } from '@tabler/icons-react'
 import PageSection from '../components/PageSection'
 import { useCreateWorkspace } from '../hooks/useCreateWorkspace'
+import { AI_MODEL_OPTIONS } from '../lib/aiModels'
 
 function CreatePage() {
   const {
     aiVersion,
     busy,
+    changeAiModel,
     formName,
     layoutSpecJson,
+    selectedAiModel,
     status,
     selectedFile,
     presets,
@@ -97,6 +100,14 @@ function CreatePage() {
           <Stack>
             <Text size="sm">AI version</Text>
             <Code block>{aiVersion}</Code>
+            <Select
+              label="Model"
+              data={AI_MODEL_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+              value={selectedAiModel}
+              allowDeselect={false}
+              onChange={(value) => void changeAiModel(value)}
+              disabled={busy}
+            />
             <Text size="sm" c="dimmed">Supported APIs</Text>
             <Code block>{`POST /api/generate-json
 POST /api/export-from-image

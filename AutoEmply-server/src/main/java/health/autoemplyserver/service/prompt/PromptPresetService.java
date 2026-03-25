@@ -7,6 +7,7 @@ import health.autoemplyserver.dto.prompt.UpdatePromptPresetRequest;
 import health.autoemplyserver.entity.PromptPreset;
 import health.autoemplyserver.entity.PromptVersion;
 import health.autoemplyserver.repository.PromptPresetRepository;
+import health.autoemplyserver.service.AiModelSelectionService;
 import health.autoemplyserver.support.exception.BadRequestException;
 import health.autoemplyserver.support.exception.NotFoundException;
 import java.math.BigDecimal;
@@ -16,7 +17,6 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.stream.Collectors;
@@ -32,15 +32,16 @@ public class PromptPresetService {
     private final PromptPresetRepository promptPresetRepository;
     private final ObjectMapper objectMapper;
 
-    @Value("${app.ai.model:" + DEFAULT_MODEL + "}")
-    private String configuredModel;
+    private final AiModelSelectionService aiModelSelectionService;
 
     public PromptPresetService(
         PromptPresetRepository promptPresetRepository,
-        ObjectMapper objectMapper
+        ObjectMapper objectMapper,
+        AiModelSelectionService aiModelSelectionService
     ) {
         this.promptPresetRepository = promptPresetRepository;
         this.objectMapper = objectMapper;
+        this.aiModelSelectionService = aiModelSelectionService;
     }
 
     @Transactional(readOnly = true)
@@ -139,7 +140,7 @@ public class PromptPresetService {
             buildPromptWithReferences(primary.getSystemPrompt(), references.stream().map(PromptPreset::getSystemPrompt).toList(), "PastPromptReference"),
             buildPromptWithReferences(primary.getUserPromptTemplate(), references.stream().map(PromptPreset::getUserPromptTemplate).toList(), "PastUserPromptReference"),
             primary.getStyleRulesJson(),
-            primary.getModel() == null || primary.getModel().isBlank() ? configuredModel : primary.getModel().trim(),
+            aiModelSelectionService.getSelectedModel(),
             primary.getTemperature() == null ? DEFAULT_TEMPERATURE : primary.getTemperature(),
             primary.getMaxTokens() == null ? DEFAULT_MAX_TOKENS : primary.getMaxTokens()
         );

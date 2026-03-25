@@ -95,6 +95,8 @@ export type WorkspaceStatus = {
 export type AiVersionResponse = {
   version?: string
   model?: string
+  configuredModel?: string
+  source?: string
 }
 
 export type ReportTemplate = {

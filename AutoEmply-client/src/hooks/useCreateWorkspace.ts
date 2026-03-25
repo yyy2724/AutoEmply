@@ -1,6 +1,6 @@
 import { notifications } from '@mantine/notifications'
 import { useEffect, useState } from 'react'
-import { exportZipFromImage, exportZipFromLayout, fetchAiVersion, generateLayoutFromImage } from '../features/create/api'
+import { exportZipFromImage, exportZipFromLayout, fetchAiVersion, generateLayoutFromImage, updateAiVersion } from '../features/create/api'
 import { fetchPresets } from '../features/prompts/api'
 import { ApiRequestError } from '../lib/api'
 import { downloadBlob } from '../lib/download'
@@ -13,15 +13,19 @@ export function useCreateWorkspace() {
   const [formName, setFormName] = useState('Form_QREmply25')
   const [layoutSpecJson, setLayoutSpecJson] = useState(defaultJson)
   const [status, setStatus] = useState<WorkspaceStatus>(emptyStatus)
-  const [aiVersion, setAiVersion] = useState('불러오는 중..')
+  const [aiVersion, setAiVersion] = useState('Loading...')
+  const [selectedAiModel, setSelectedAiModel] = useState('claude-sonnet-4-6')
   const [busy, setBusy] = useState(false)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [presets, setPresets] = useState<PromptPreset[]>([])
 
   useEffect(() => {
     fetchAiVersion()
-      .then((data) => setAiVersion(data?.version ?? '알 수 없음'))
-      .catch(() => setAiVersion('확인 불가'))
+      .then((data) => {
+        setAiVersion(data?.version ?? 'Unknown')
+        setSelectedAiModel(data?.configuredModel ?? data?.model ?? 'claude-sonnet-4-6')
+      })
+      .catch(() => setAiVersion('Unavailable'))
 
     fetchPresets()
       .then((data) => setPresets(data))
@@ -29,18 +33,18 @@ export function useCreateWorkspace() {
   }, [])
 
   function setInfo(message: string) {
-    setStatus({ tone: 'info', title: '상태', message, details: [], retryable: false, retryAction: null })
+    setStatus({ tone: 'info', title: 'Status', message, details: [], retryable: false, retryAction: null })
   }
 
   function setValidationHint(message: string) {
-    setStatus({ tone: 'error', title: '입력 필요', message, details: [], retryable: false, retryAction: null })
+    setStatus({ tone: 'error', title: 'Input required', message, details: [], retryable: false, retryAction: null })
   }
 
   function setRequestError(error: unknown, fallbackMessage: string, retryAction: WorkspaceStatus['retryAction']) {
     if (error instanceof ApiRequestError) {
       setStatus({
         tone: 'error',
-        title: error.retryable ? '일시적 오류' : '요청 실패',
+        title: error.retryable ? 'Temporary error' : 'Request failed',
         message: mapApiErrorMessage(error, fallbackMessage),
         details: error.details,
         retryable: error.retryable,
@@ -51,7 +55,7 @@ export function useCreateWorkspace() {
 
     setStatus({
       tone: 'error',
-      title: '요청 실패',
+      title: 'Request failed',
       message: error instanceof Error ? error.message : fallbackMessage,
       details: [],
       retryable: false,
@@ -61,23 +65,19 @@ export function useCreateWorkspace() {
 
   async function generateJson() {
     if (!selectedFile) {
-      setValidationHint('JSON 생성 전에 이미지나 PDF를 업로드하세요.')
+      setValidationHint('Upload an image or PDF before generating JSON.')
       return
     }
 
     try {
       setBusy(true)
       setStatus(emptyStatus)
-      const data = await generateLayoutFromImage(
-        formName,
-        selectedFile,
-        getGenerationPresetIds(presets),
-      )
+      const data = await generateLayoutFromImage(formName, selectedFile, getGenerationPresetIds(presets))
       setLayoutSpecJson(JSON.stringify(data, null, 2))
-      setInfo('LayoutSpec JSON 생성이 완료되었습니다.')
-      notifications.show({ color: 'teal', message: 'LayoutSpec JSON 생성이 완료되었습니다.' })
+      setInfo('LayoutSpec JSON generated.')
+      notifications.show({ color: 'teal', message: 'LayoutSpec JSON generated.' })
     } catch (error) {
-      setRequestError(error, 'LayoutSpec JSON 생성에 실패했습니다.', 'generate-json')
+      setRequestError(error, 'Failed to generate LayoutSpec JSON.', 'generate-json')
     } finally {
       setBusy(false)
     }
@@ -85,23 +85,19 @@ export function useCreateWorkspace() {
 
   async function exportFromImage() {
     if (!selectedFile) {
-      setValidationHint('ZIP 내보내기 전에 이미지나 PDF를 업로드하세요.')
+      setValidationHint('Upload an image or PDF before exporting ZIP.')
       return
     }
 
     try {
       setBusy(true)
       setStatus(emptyStatus)
-      const blob = await exportZipFromImage(
-        formName,
-        selectedFile,
-        getGenerationPresetIds(presets),
-      )
+      const blob = await exportZipFromImage(formName, selectedFile, getGenerationPresetIds(presets))
       downloadBlob(blob, `${formName}.zip`)
-      setInfo('이미지 기반 ZIP 내보내기를 시작했습니다.')
-      notifications.show({ color: 'teal', message: '이미지 기반 ZIP 내보내기를 시작했습니다.' })
+      setInfo('ZIP export from image started.')
+      notifications.show({ color: 'teal', message: 'ZIP export from image started.' })
     } catch (error) {
-      setRequestError(error, '업로드한 파일에서 ZIP 생성에 실패했습니다.', 'export-image')
+      setRequestError(error, 'Failed to generate ZIP from uploaded file.', 'export-image')
     } finally {
       setBusy(false)
     }
@@ -113,10 +109,27 @@ export function useCreateWorkspace() {
       setStatus(emptyStatus)
       const blob = await exportZipFromLayout(formName, JSON.parse(layoutSpecJson) as LayoutSpec)
       downloadBlob(blob, `${formName}.zip`)
-      setInfo('JSON 기반 ZIP 내보내기를 시작했습니다.')
-      notifications.show({ color: 'teal', message: 'JSON 기반 ZIP 내보내기를 시작했습니다.' })
+      setInfo('ZIP export from current JSON started.')
+      notifications.show({ color: 'teal', message: 'ZIP export from current JSON started.' })
     } catch (error) {
-      setRequestError(error, '현재 JSON에서 ZIP 생성에 실패했습니다.', 'export-json')
+      setRequestError(error, 'Failed to generate ZIP from current JSON.', 'export-json')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function changeAiModel(model: string | null) {
+    const nextModel = model ?? 'claude-sonnet-4-6'
+    try {
+      setBusy(true)
+      setStatus(emptyStatus)
+      const data = await updateAiVersion(nextModel)
+      setSelectedAiModel(data?.configuredModel ?? data?.model ?? nextModel)
+      setAiVersion(data?.version ?? nextModel)
+      setInfo(`AI model changed to ${nextModel}.`)
+      notifications.show({ color: 'teal', message: `AI model changed to ${nextModel}.` })
+    } catch (error) {
+      setRequestError(error, 'Failed to update AI model.', null)
     } finally {
       setBusy(false)
     }
@@ -125,11 +138,13 @@ export function useCreateWorkspace() {
   return {
     aiVersion,
     busy,
+    changeAiModel,
     formName,
     layoutSpecJson,
-    status,
-    selectedFile,
     presets,
+    selectedAiModel,
+    selectedFile,
+    status,
     setFormName,
     setLayoutSpecJson,
     setSelectedFile,
@@ -161,11 +176,11 @@ function orderActiveItems<T extends { id: string; updatedAt: string; active?: bo
 
 function mapApiErrorMessage(error: ApiRequestError, fallbackMessage: string) {
   if (error.status === 400 && error.details.length > 0) {
-    return '서버가 요청을 거부했습니다. 아래 검증 오류를 수정한 뒤 다시 시도하세요.'
+    return 'The server rejected the request. Fix the validation errors and try again.'
   }
 
   if (error.retryable) {
-    return error.message || '일시적인 오류가 발생했습니다. 잠시 후 다시 시도하세요.'
+    return error.message || 'A temporary error occurred. Try again shortly.'
   }
 
   return error.message || fallbackMessage

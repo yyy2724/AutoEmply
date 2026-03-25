@@ -5,6 +5,14 @@ export function fetchAiVersion(): Promise<AiVersionResponse> {
   return requestJson<AiVersionResponse>('/api/ai-version')
 }
 
+export function updateAiVersion(model: string): Promise<AiVersionResponse> {
+  return requestJson<AiVersionResponse>('/api/ai-version', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model }),
+  })
+}
+
 export function generateLayoutFromImage(formName: string, file: File, presetIds: string[] = []): Promise<LayoutSpec> {
   const formData = new FormData()
   formData.append('formName', formName.trim())
