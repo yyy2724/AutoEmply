@@ -7,6 +7,7 @@ import {
   Group,
   NumberInput,
   ScrollArea,
+  Select,
   Stack,
   Table,
   Text,
@@ -15,6 +16,7 @@ import {
 } from '@mantine/core'
 import PageSection from '../components/PageSection'
 import { usePromptPresets } from '../hooks/usePromptPresets'
+import { AI_MODEL_OPTIONS, getAiModelLabel } from '../lib/aiModels'
 import type { PromptPreset } from '../types'
 
 const mutedButtonStyles = {
@@ -83,6 +85,7 @@ function PresetsPage() {
                 <Table.Thead>
                   <Table.Tr>
                     <Table.Th>Name</Table.Th>
+                    <Table.Th>Model</Table.Th>
                     <Table.Th>Status</Table.Th>
                     <Table.Th>Updated</Table.Th>
                   </Table.Tr>
@@ -98,6 +101,7 @@ function PresetsPage() {
                       }}
                     >
                       <Table.Td>{preset.name}</Table.Td>
+                      <Table.Td>{getAiModelLabel(preset.model)}</Table.Td>
                       <Table.Td>{preset.isActive ? 'Active' : 'Inactive'}</Table.Td>
                       <Table.Td>{new Date(preset.updatedAt).toLocaleString()}</Table.Td>
                     </Table.Tr>
@@ -127,11 +131,13 @@ function PresetsPage() {
                 value={form.name}
                 onChange={(event) => setForm((current) => ({ ...current, name: event.currentTarget.value }))}
               />
-              <TextInput
+              <Select
                 label="Model"
                 styles={monoLabelStyles}
+                data={AI_MODEL_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
                 value={form.model}
-                onChange={(event) => setForm((current) => ({ ...current, model: event.currentTarget.value }))}
+                allowDeselect={false}
+                onChange={(value) => setForm((current) => ({ ...current, model: value ?? 'claude-sonnet-4-6' }))}
               />
             </Group>
             <Textarea
