@@ -15,7 +15,6 @@ public class ImageGenerationService {
 
     private final ClaudeClient claudeClient;
     private final DelphiGenerator delphiGenerator;
-    private final LayoutPostProcessor layoutPostProcessor;
     private final StructureToLayoutConverter structureToLayoutConverter;
     private final UploadedVisualPreparer uploadedVisualPreparer;
     private final PromptPresetResolver promptPresetResolver;
@@ -23,14 +22,12 @@ public class ImageGenerationService {
     public ImageGenerationService(
         ClaudeClient claudeClient,
         DelphiGenerator delphiGenerator,
-        LayoutPostProcessor layoutPostProcessor,
         StructureToLayoutConverter structureToLayoutConverter,
         UploadedVisualPreparer uploadedVisualPreparer,
         PromptPresetResolver promptPresetResolver
     ) {
         this.claudeClient = claudeClient;
         this.delphiGenerator = delphiGenerator;
-        this.layoutPostProcessor = layoutPostProcessor;
         this.structureToLayoutConverter = structureToLayoutConverter;
         this.uploadedVisualPreparer = uploadedVisualPreparer;
         this.promptPresetResolver = promptPresetResolver;
@@ -39,8 +36,7 @@ public class ImageGenerationService {
     public LayoutSpec generateLayoutSpec(String formName, MultipartFile image, List<String> presetIds) {
         PreparedVisual visual = uploadedVisualPreparer.prepare(formName, image);
         ResolvedPromptPreset preset = promptPresetResolver.resolve(presetIds);
-        LayoutSpec layoutSpec = claudeClient.generateLayoutSpec(visual.formName(), visual.mediaType(), visual.base64Data(), preset);
-        return layoutPostProcessor.process(layoutSpec);
+        return claudeClient.generateLayoutSpec(visual.formName(), visual.mediaType(), visual.base64Data(), preset);
     }
 
     public byte[] exportZip(String formName, MultipartFile image, List<String> presetIds) {
@@ -61,6 +57,6 @@ public class ImageGenerationService {
 
     public LayoutSpec generateLayoutSpecFromStructure(String formName, MultipartFile image, List<String> presetIds) {
         FormStructure structure = generateStructure(formName, image, presetIds);
-        return layoutPostProcessor.process(structureToLayoutConverter.convert(structure));
+        return structureToLayoutConverter.convert(structure);
     }
 }
