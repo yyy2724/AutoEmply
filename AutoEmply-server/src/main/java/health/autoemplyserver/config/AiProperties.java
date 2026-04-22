@@ -6,7 +6,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class AiProperties {
 
     private String apiUrl = "https://api.anthropic.com/v1/messages";
-    private String model = "claude-sonnet-4-6";
+    private String model = "claude-opus-4-7";
     private int requestTimeoutSeconds = 240;
     private int maxRetryAttempts = 3;
     private String apiKey;

@@ -10,7 +10,8 @@ public class AiModelSelectionService {
 
     private static final Set<String> ALLOWED_MODELS = Set.of(
         "claude-sonnet-4-6",
-        "claude-opus-4-6"
+        "claude-opus-4-6",
+        "claude-opus-4-7"
     );
 
     private final AiProperties aiProperties;
@@ -36,9 +37,9 @@ public class AiModelSelectionService {
     }
 
     private String normalize(String model) {
-        String normalized = model == null || model.isBlank() ? "claude-sonnet-4-6" : model.trim();
+        String normalized = model == null || model.isBlank() ? "claude-opus-4-7" : model.trim();
         if (!ALLOWED_MODELS.contains(normalized)) {
-            return "claude-sonnet-4-6";
+            return "claude-opus-4-7";
         }
         return normalized;
     }

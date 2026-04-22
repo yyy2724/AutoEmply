@@ -14,7 +14,7 @@ export function useCreateWorkspace() {
   const [layoutSpecJson, setLayoutSpecJson] = useState(defaultJson)
   const [status, setStatus] = useState<WorkspaceStatus>(emptyStatus)
   const [aiVersion, setAiVersion] = useState('Loading...')
-  const [selectedAiModel, setSelectedAiModel] = useState('claude-sonnet-4-6')
+  const [selectedAiModel, setSelectedAiModel] = useState('claude-opus-4-7')
   const [busy, setBusy] = useState(false)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [presets, setPresets] = useState<PromptPreset[]>([])
@@ -23,7 +23,7 @@ export function useCreateWorkspace() {
     fetchAiVersion()
       .then((data) => {
         setAiVersion(data?.version ?? 'Unknown')
-        setSelectedAiModel(data?.configuredModel ?? data?.model ?? 'claude-sonnet-4-6')
+        setSelectedAiModel(data?.configuredModel ?? data?.model ?? 'claude-opus-4-7')
       })
       .catch(() => setAiVersion('Unavailable'))
 
@@ -119,7 +119,7 @@ export function useCreateWorkspace() {
   }
 
   async function changeAiModel(model: string | null) {
-    const nextModel = model ?? 'claude-sonnet-4-6'
+    const nextModel = model ?? 'claude-opus-4-7'
     try {
       setBusy(true)
       setStatus(emptyStatus)

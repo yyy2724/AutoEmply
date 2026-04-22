@@ -25,7 +25,7 @@ import java.util.stream.Collectors;
 @Transactional
 public class PromptPresetService {
 
-    private static final String DEFAULT_MODEL = "claude-sonnet-4-6";
+    private static final String DEFAULT_MODEL = "claude-opus-4-7";
     private static final BigDecimal DEFAULT_TEMPERATURE = BigDecimal.ZERO;
     private static final int DEFAULT_MAX_TOKENS = 32000;
 
