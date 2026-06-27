@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+jobs:
+  server:
+    name: Server tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Run tests
+        working-directory: AutoEmply-server
+        run: |
+          chmod +x gradlew
+          ./gradlew test --console=plain
+
+  client:
+    name: Client typecheck & build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: AutoEmply-client/package-lock.json
+
+      - name: Install dependencies
+        working-directory: AutoEmply-client
+        run: npm ci
+
+      - name: Lint
+        working-directory: AutoEmply-client
+        run: npm run lint
+
+      - name: Typecheck
+        working-directory: AutoEmply-client
+        run: npm run typecheck
+
+      - name: Build
+        working-directory: AutoEmply-client
+        run: npm run build

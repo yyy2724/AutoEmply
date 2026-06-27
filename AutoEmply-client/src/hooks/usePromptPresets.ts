@@ -2,6 +2,7 @@ import { notifications } from '@mantine/notifications'
 import { useEffect, useMemo, useState } from 'react'
 import { createPreset, deletePreset, fetchPresets, updatePreset } from '../features/prompts/api'
 import type { PromptPreset, PromptPresetForm } from '../types'
+import { useAsyncAction } from './useAsyncAction'
 
 const createDefaultPresetForm = (): PromptPresetForm => ({
   name: `preset-${new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14)}`,
@@ -17,15 +18,9 @@ const createDefaultPresetForm = (): PromptPresetForm => ({
 
 function createPresetFormFromSource(source?: PromptPreset | null): PromptPresetForm {
   return {
-    name: `preset-${new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14)}`,
-    systemPrompt: '',
+    ...createDefaultPresetForm(),
     userPromptTemplate: source?.userPromptTemplate ?? '',
-    styleRulesJson: '',
     model: source?.model ?? 'claude-opus-4-7',
-    temperature: 0,
-    maxTokens: 32000,
-    isActive: true,
-    isPrimary: false,
   }
 }
 
@@ -33,24 +28,17 @@ export function usePromptPresets() {
   const [presets, setPresets] = useState<PromptPreset[]>([])
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState<PromptPresetForm>(createDefaultPresetForm())
-  const [message, setMessage] = useState('')
-  const [busy, setBusy] = useState(false)
+  const { busy, message, run } = useAsyncAction()
 
   async function loadPresets() {
-    try {
-      setBusy(true)
-      setMessage('')
-      const data = await fetchPresets()
-      setPresets(data)
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : '프리셋을 불러오지 못했습니다.')
-    } finally {
-      setBusy(false)
-    }
+    await run(async () => {
+      setPresets(await fetchPresets())
+    }, '프리셋을 불러오지 못했습니다.')
   }
 
   useEffect(() => {
     void loadPresets()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   function selectPreset(preset: PromptPreset) {
@@ -75,14 +63,11 @@ export function usePromptPresets() {
   }
 
   async function savePreset() {
-    try {
-      setBusy(true)
-      setMessage('')
+    await run(async () => {
       const payload: PromptPresetForm = {
         ...form,
-        styleRulesJson: form.styleRulesJson.trim() || '',
-        model: form.model.trim() || '',
-        isPrimary: form.isPrimary,
+        styleRulesJson: form.styleRulesJson.trim(),
+        model: form.model.trim(),
       }
 
       if (editingId) {
@@ -94,11 +79,7 @@ export function usePromptPresets() {
       notifications.show({ color: 'teal', message: '프리셋이 저장되었습니다.' })
       resetEditor()
       await loadPresets()
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : '프리셋 저장에 실패했습니다.')
-    } finally {
-      setBusy(false)
-    }
+    }, '프리셋 저장에 실패했습니다.')
   }
 
   async function removePreset() {
@@ -106,18 +87,12 @@ export function usePromptPresets() {
       return
     }
 
-    try {
-      setBusy(true)
-      setMessage('')
+    await run(async () => {
       await deletePreset(editingId)
       notifications.show({ color: 'teal', message: '프리셋이 삭제되었습니다.' })
       resetEditor()
       await loadPresets()
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : '프리셋 삭제에 실패했습니다.')
-    } finally {
-      setBusy(false)
-    }
+    }, '프리셋 삭제에 실패했습니다.')
   }
 
   const activeCount = useMemo(

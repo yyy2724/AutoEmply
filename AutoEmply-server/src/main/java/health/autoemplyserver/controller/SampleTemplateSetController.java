@@ -16,6 +16,10 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+/**
+ * CRUD endpoints for sample template sets: named groups of report template ids
+ * used as reference samples.
+ */
 @RestController
 @RequestMapping("/api/sample-template-sets")
 public class SampleTemplateSetController {

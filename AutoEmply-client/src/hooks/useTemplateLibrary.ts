@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { deleteReportTemplate, downloadReportTemplate, fetchReportTemplates, uploadReportTemplate } from '../features/library/api'
 import { downloadBlob } from '../lib/download'
 import type { ReportTemplate } from '../types'
+import { useAsyncAction } from './useAsyncAction'
 
 export function useTemplateLibrary() {
   const [templates, setTemplates] = useState<ReportTemplate[]>([])
@@ -15,19 +16,24 @@ export function useTemplateLibrary() {
   const [dfmFile, setDfmFile] = useState<File | null>(null)
   const [pasFile, setPasFile] = useState<File | null>(null)
   const [previewFile, setPreviewFile] = useState<File | null>(null)
-  const [message, setMessage] = useState('')
-  const [busy, setBusy] = useState(false)
+  const { busy, message, run, setMessage } = useAsyncAction()
 
   const categories = useMemo(
     () => [...new Set(templates.map((item) => item.category))],
     [templates],
   )
 
+  // Fall back to 'all' at render time when the selected category no longer
+  // exists (e.g. its last template was deleted) — derived instead of an
+  // effect to avoid a cascading re-render.
+  const effectiveCategory =
+    activeCategory === 'all' || categories.includes(activeCategory) ? activeCategory : 'all'
+
   const filteredTemplates = useMemo(() => {
     const keyword = searchText.trim().toLowerCase()
-    const categoryFiltered = activeCategory === 'all'
+    const categoryFiltered = effectiveCategory === 'all'
       ? templates
-      : templates.filter((item) => item.category === activeCategory)
+      : templates.filter((item) => item.category === effectiveCategory)
 
     if (!keyword) return categoryFiltered
     return categoryFiltered.filter((item) =>
@@ -35,33 +41,21 @@ export function useTemplateLibrary() {
         value.toLowerCase().includes(keyword),
       ),
     )
-  }, [activeCategory, searchText, templates])
+  }, [effectiveCategory, searchText, templates])
 
   const loadTemplates = useCallback(async () => {
-    try {
-      setBusy(true)
-      setMessage('')
+    await run(async () => {
       const data = await fetchReportTemplates()
       setTemplates(data)
       setSelectedTemplate((current) =>
         current ? data.find((item) => item.id === current.id) ?? null : current,
       )
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : '템플릿을 불러오지 못했습니다.')
-    } finally {
-      setBusy(false)
-    }
-  }, [])
+    }, '템플릿을 불러오지 못했습니다.')
+  }, [run])
 
   useEffect(() => {
     void loadTemplates()
   }, [loadTemplates])
-
-  useEffect(() => {
-    if (activeCategory !== 'all' && !categories.includes(activeCategory)) {
-      setActiveCategory('all')
-    }
-  }, [activeCategory, categories])
 
   async function createTemplate() {
     if (!uploadName.trim() || !uploadCategory.trim() || !dfmFile || !pasFile) {
@@ -69,16 +63,9 @@ export function useTemplateLibrary() {
       return
     }
 
-    try {
-      setBusy(true)
-      setMessage('')
-      await uploadReportTemplate({
-        name: uploadName,
-        category: uploadCategory,
-        dfmFile,
-        pasFile,
-        previewFile,
-      })
+    const request = { name: uploadName, category: uploadCategory, dfmFile, pasFile, previewFile }
+    await run(async () => {
+      await uploadReportTemplate(request)
       notifications.show({ color: 'teal', message: '템플릿 업로드가 완료되었습니다.' })
       setUploadName('')
       setUploadCategory('')
@@ -86,11 +73,7 @@ export function useTemplateLibrary() {
       setPasFile(null)
       setPreviewFile(null)
       await loadTemplates()
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : '템플릿 업로드에 실패했습니다.')
-    } finally {
-      setBusy(false)
-    }
+    }, '템플릿 업로드에 실패했습니다.')
   }
 
   async function downloadTemplate() {
@@ -98,17 +81,12 @@ export function useTemplateLibrary() {
       return
     }
 
-    try {
-      setBusy(true)
-      setMessage('')
-      const blob = await downloadReportTemplate(selectedTemplate.id, downloadFormName)
+    const templateId = selectedTemplate.id
+    await run(async () => {
+      const blob = await downloadReportTemplate(templateId, downloadFormName)
       downloadBlob(blob, `${downloadFormName.trim()}.zip`)
       notifications.show({ color: 'teal', message: 'ZIP 다운로드를 시작했습니다.' })
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'ZIP 다운로드에 실패했습니다.')
-    } finally {
-      setBusy(false)
-    }
+    }, 'ZIP 다운로드에 실패했습니다.')
   }
 
   async function removeTemplate() {
@@ -116,22 +94,17 @@ export function useTemplateLibrary() {
       return
     }
 
-    try {
-      setBusy(true)
-      setMessage('')
-      await deleteReportTemplate(selectedTemplate.id)
+    const templateId = selectedTemplate.id
+    await run(async () => {
+      await deleteReportTemplate(templateId)
       setSelectedTemplate(null)
       notifications.show({ color: 'teal', message: '템플릿이 삭제되었습니다.' })
       await loadTemplates()
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : '템플릿 삭제에 실패했습니다.')
-    } finally {
-      setBusy(false)
-    }
+    }, '템플릿 삭제에 실패했습니다.')
   }
 
   return {
-    activeCategory,
+    activeCategory: effectiveCategory,
     busy,
     categories,
     dfmFile,

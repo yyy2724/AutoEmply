@@ -10,15 +10,15 @@ import org.springframework.stereotype.Component;
 @Component
 public class PromptPresetResolver {
 
-    private final PromptPresetService promptPresetService;
+    private final PromptResolver promptResolver;
 
-    public PromptPresetResolver(PromptPresetService promptPresetService) {
-        this.promptPresetService = promptPresetService;
+    public PromptPresetResolver(PromptResolver promptResolver) {
+        this.promptResolver = promptResolver;
     }
 
     public ResolvedPromptPreset resolve(List<String> presetIds) {
         List<UUID> parsedPresetIds = parseUuids(presetIds, "presetIds");
-        ResolvedPromptPreset preset = promptPresetService.resolve(parsedPresetIds);
+        ResolvedPromptPreset preset = promptResolver.resolve(parsedPresetIds);
         if (preset == null) {
             throw new NotFoundException("Prompt preset not found.");
         }

@@ -18,11 +18,12 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
 
-      - name: Build with Gradle
+      # Tests gate the jar build: a failing test stops the deploy.
+      - name: Test & build with Gradle
         run: |
           cd AutoEmply-server
           chmod +x gradlew
-          ./gradlew bootJar
+          ./gradlew test bootJar
 
       - name: Copy jar to EC2
         uses: appleboy/scp-action@master

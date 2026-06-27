@@ -11,6 +11,10 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 import org.springframework.stereotype.Component;
 
+/**
+ * Renames an existing Delphi form source pair (.dfm/.pas) to a new form name,
+ * rewriting unit/class/identifier references, and repackages the result as a zip.
+ */
 @Component
 public class DelphiRenamer {
 

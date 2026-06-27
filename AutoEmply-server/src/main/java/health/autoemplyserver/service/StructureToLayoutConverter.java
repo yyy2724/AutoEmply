@@ -16,21 +16,39 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.springframework.stereotype.Component;
 
+/**
+ * Converts a semantic {@link FormStructure} (sections, tables, freeform elements, footer)
+ * into a concrete pixel-positioned {@link LayoutSpec} ready for Delphi code generation.
+ */
 @Component
 public class StructureToLayoutConverter {
 
-    private static final int CANVAS_LEFT = 10;
-    private static final int CONTENT_WIDTH = 774;
-    private static final int STANDARD_ROW_HEIGHT = 20;
-    private static final int COMPACT_ROW_HEIGHT = 14;
-    private static final int TALL_ROW_HEIGHT = 30;
-    private static final int LABEL_HEIGHT = 13;
-    private static final int TITLE_HEIGHT = 28;
-    private static final int CELL_PADDING_LEFT = 4;
-    private static final int CELL_PADDING_TOP = 3;
-    private static final int SECTION_GAP = 2;
+    // Canvas grid (pixels). Sections are laid out top-down on a canvas whose drawable
+    // content starts at x = CANVAS_LEFT and spans CONTENT_WIDTH px; table column widths
+    // and freeform x/width fractions are resolved against CONTENT_WIDTH.
+    private static final int CANVAS_LEFT = 10;     // left margin of the drawable area in px
+    private static final int CONTENT_WIDTH = 774;  // usable content width in px
+
+    // Row/label heights (pixels), selected via the row "heightHint".
+    private static final int STANDARD_ROW_HEIGHT = 20;  // px; default table row height
+    private static final int COMPACT_ROW_HEIGHT = 14;   // px; "compact" rows
+    private static final int TALL_ROW_HEIGHT = 30;      // px; "tall" rows (e.g. signature/remarks)
+    private static final int LABEL_HEIGHT = 13;         // px; single-line text label height
+    private static final int TITLE_HEIGHT = 28;         // px; form title label height
+
+    // Cell text inset and section spacing (pixels).
+    private static final int CELL_PADDING_LEFT = 4;  // px; horizontal inset of text inside a cell
+    private static final int CELL_PADDING_TOP = 3;   // px; vertical inset of text inside a cell
+    private static final int SECTION_GAP = 2;        // px; vertical gap between consecutive sections
+
     private static final String HEADER_BG_COLOR = "#D8E4F0";
     private static final String BORDER_COLOR = "#000000";
+
+    /**
+     * Matches a form field code embedded in a field name, e.g. "AT0001" or "EMP12":
+     * a 2-4 letter prefix followed by a 2-4 digit number. The code becomes part of the
+     * generated Delphi component name ("Qlb3_" + code).
+     */
     private static final Pattern FIELD_CODE_REGEX = Pattern.compile("([A-Za-z]{2,4}\\d{2,4})");
 
     public LayoutSpec convert(FormStructure structure) {
@@ -78,6 +96,7 @@ public class StructureToLayoutConverter {
         List<Integer> rowYs = calculateRowPositions(table.getRows(), startY);
         int totalHeight = rowYs.getLast() - startY;
 
+        // Three-phase rendering defines the z-order: backgrounds under borders under text.
         renderBackgrounds(table, items, colBounds, rowYs, tableLeft, tableWidth, startY, totalHeight);
         renderBorders(table, items, colBounds, rowYs, tableLeft, tableWidth, startY, totalHeight);
         renderCellTexts(table, items, colBounds, rowYs);
@@ -85,6 +104,7 @@ public class StructureToLayoutConverter {
         return rowYs.getLast();
     }
 
+    // Rendering phase 1 of 3: fill rects for header rows/columns/cells, drawn beneath borders and text.
     private void renderBackgrounds(TableDef table, List<LayoutItem> items, int[] colBounds, List<Integer> rowYs, int tableLeft, int tableWidth, int startY, int totalHeight) {
         for (int col = 0; col < table.getColumns().size(); col++) {
             if (table.getColumns().get(col).isHeaderColumn()) {
@@ -111,6 +131,7 @@ public class StructureToLayoutConverter {
         }
     }
 
+    // Rendering phase 2 of 3: grid border lines, drawn above backgrounds but beneath text.
     private void renderBorders(TableDef table, List<LayoutItem> items, int[] colBounds, List<Integer> rowYs, int tableLeft, int tableWidth, int startY, int totalHeight) {
         for (int row = 0; row <= table.getRows().size(); row++) {
             items.add(makeHLine(tableLeft, rowYs.get(row), tableWidth));
@@ -121,6 +142,7 @@ public class StructureToLayoutConverter {
         }
     }
 
+    // Rendering phase 3 of 3: cell text labels, drawn on top of backgrounds and borders.
     private void renderCellTexts(TableDef table, List<LayoutItem> items, int[] colBounds, List<Integer> rowYs) {
         for (int rowIndex = 0; rowIndex < table.getRows().size(); rowIndex++) {
             int colIndex = 0;

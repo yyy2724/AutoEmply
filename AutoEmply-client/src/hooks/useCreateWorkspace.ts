@@ -5,7 +5,9 @@ import { fetchPresets } from '../features/prompts/api'
 import { ApiRequestError } from '../lib/api'
 import { downloadBlob } from '../lib/download'
 import type { LayoutSpec, PromptPreset, WorkspaceStatus } from '../types'
+import { useAsyncAction } from './useAsyncAction'
 
+const DEFAULT_AI_MODEL = 'claude-opus-4-7'
 const defaultJson = '{\n  "items": []\n}'
 const emptyStatus: WorkspaceStatus = { tone: 'info', title: '', message: '', details: [], retryable: false, retryAction: null }
 
@@ -13,19 +15,19 @@ export function useCreateWorkspace() {
   const [formName, setFormName] = useState('Form_QREmply25')
   const [layoutSpecJson, setLayoutSpecJson] = useState(defaultJson)
   const [status, setStatus] = useState<WorkspaceStatus>(emptyStatus)
-  const [aiVersion, setAiVersion] = useState('Loading...')
-  const [selectedAiModel, setSelectedAiModel] = useState('claude-opus-4-7')
-  const [busy, setBusy] = useState(false)
+  const [aiVersion, setAiVersion] = useState('불러오는 중...')
+  const [selectedAiModel, setSelectedAiModel] = useState(DEFAULT_AI_MODEL)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [presets, setPresets] = useState<PromptPreset[]>([])
+  const { busy, run } = useAsyncAction()
 
   useEffect(() => {
     fetchAiVersion()
       .then((data) => {
-        setAiVersion(data?.version ?? 'Unknown')
-        setSelectedAiModel(data?.configuredModel ?? data?.model ?? 'claude-opus-4-7')
+        setAiVersion(data.version ?? '알 수 없음')
+        setSelectedAiModel(data.configuredModel ?? data.model ?? DEFAULT_AI_MODEL)
       })
-      .catch(() => setAiVersion('Unavailable'))
+      .catch(() => setAiVersion('확인 불가'))
 
     fetchPresets()
       .then((data) => setPresets(data))
@@ -33,18 +35,18 @@ export function useCreateWorkspace() {
   }, [])
 
   function setInfo(message: string) {
-    setStatus({ tone: 'info', title: 'Status', message, details: [], retryable: false, retryAction: null })
+    setStatus({ tone: 'info', title: '상태', message, details: [], retryable: false, retryAction: null })
   }
 
   function setValidationHint(message: string) {
-    setStatus({ tone: 'error', title: 'Input required', message, details: [], retryable: false, retryAction: null })
+    setStatus({ tone: 'error', title: '입력 필요', message, details: [], retryable: false, retryAction: null })
   }
 
   function setRequestError(error: unknown, fallbackMessage: string, retryAction: WorkspaceStatus['retryAction']) {
     if (error instanceof ApiRequestError) {
       setStatus({
         tone: 'error',
-        title: error.retryable ? 'Temporary error' : 'Request failed',
+        title: error.retryable ? '일시적 오류' : '요청 실패',
         message: mapApiErrorMessage(error, fallbackMessage),
         details: error.details,
         retryable: error.retryable,
@@ -55,7 +57,7 @@ export function useCreateWorkspace() {
 
     setStatus({
       tone: 'error',
-      title: 'Request failed',
+      title: '요청 실패',
       message: error instanceof Error ? error.message : fallbackMessage,
       details: [],
       retryable: false,
@@ -65,74 +67,56 @@ export function useCreateWorkspace() {
 
   async function generateJson() {
     if (!selectedFile) {
-      setValidationHint('Upload an image or PDF before generating JSON.')
+      setValidationHint('JSON을 생성하려면 이미지 또는 PDF 파일을 먼저 업로드하세요.')
       return
     }
 
-    try {
-      setBusy(true)
-      setStatus(emptyStatus)
-      const data = await generateLayoutFromImage(formName, selectedFile, getGenerationPresetIds(presets))
+    const file = selectedFile
+    setStatus(emptyStatus)
+    await run(async () => {
+      const data = await generateLayoutFromImage(formName, file, getGenerationPresetIds(presets))
       setLayoutSpecJson(JSON.stringify(data, null, 2))
-      setInfo('LayoutSpec JSON generated.')
-      notifications.show({ color: 'teal', message: 'LayoutSpec JSON generated.' })
-    } catch (error) {
-      setRequestError(error, 'Failed to generate LayoutSpec JSON.', 'generate-json')
-    } finally {
-      setBusy(false)
-    }
+      setInfo('LayoutSpec JSON이 생성되었습니다.')
+      notifications.show({ color: 'teal', message: 'LayoutSpec JSON이 생성되었습니다.' })
+    }, (error) => setRequestError(error, 'LayoutSpec JSON 생성에 실패했습니다.', 'generate-json'))
   }
 
   async function exportFromImage() {
     if (!selectedFile) {
-      setValidationHint('Upload an image or PDF before exporting ZIP.')
+      setValidationHint('ZIP을 생성하려면 이미지 또는 PDF 파일을 먼저 업로드하세요.')
       return
     }
 
-    try {
-      setBusy(true)
-      setStatus(emptyStatus)
-      const blob = await exportZipFromImage(formName, selectedFile, getGenerationPresetIds(presets))
+    const file = selectedFile
+    setStatus(emptyStatus)
+    await run(async () => {
+      const blob = await exportZipFromImage(formName, file, getGenerationPresetIds(presets))
       downloadBlob(blob, `${formName}.zip`)
-      setInfo('ZIP export from image started.')
-      notifications.show({ color: 'teal', message: 'ZIP export from image started.' })
-    } catch (error) {
-      setRequestError(error, 'Failed to generate ZIP from uploaded file.', 'export-image')
-    } finally {
-      setBusy(false)
-    }
+      setInfo('이미지 기반 ZIP 내보내기를 시작했습니다.')
+      notifications.show({ color: 'teal', message: '이미지 기반 ZIP 내보내기를 시작했습니다.' })
+    }, (error) => setRequestError(error, '업로드한 파일로 ZIP을 생성하지 못했습니다.', 'export-image'))
   }
 
   async function exportFromJson() {
-    try {
-      setBusy(true)
-      setStatus(emptyStatus)
+    setStatus(emptyStatus)
+    await run(async () => {
       const blob = await exportZipFromLayout(formName, JSON.parse(layoutSpecJson) as LayoutSpec)
       downloadBlob(blob, `${formName}.zip`)
-      setInfo('ZIP export from current JSON started.')
-      notifications.show({ color: 'teal', message: 'ZIP export from current JSON started.' })
-    } catch (error) {
-      setRequestError(error, 'Failed to generate ZIP from current JSON.', 'export-json')
-    } finally {
-      setBusy(false)
-    }
+      setInfo('현재 JSON 기반 ZIP 내보내기를 시작했습니다.')
+      notifications.show({ color: 'teal', message: '현재 JSON 기반 ZIP 내보내기를 시작했습니다.' })
+    }, (error) => setRequestError(error, '현재 JSON으로 ZIP을 생성하지 못했습니다.', 'export-json'))
   }
 
   async function changeAiModel(model: string | null) {
-    const nextModel = model ?? 'claude-opus-4-7'
-    try {
-      setBusy(true)
-      setStatus(emptyStatus)
+    const nextModel = model ?? DEFAULT_AI_MODEL
+    setStatus(emptyStatus)
+    await run(async () => {
       const data = await updateAiVersion(nextModel)
-      setSelectedAiModel(data?.configuredModel ?? data?.model ?? nextModel)
-      setAiVersion(data?.version ?? nextModel)
-      setInfo(`AI model changed to ${nextModel}.`)
-      notifications.show({ color: 'teal', message: `AI model changed to ${nextModel}.` })
-    } catch (error) {
-      setRequestError(error, 'Failed to update AI model.', null)
-    } finally {
-      setBusy(false)
-    }
+      setSelectedAiModel(data.configuredModel ?? data.model ?? nextModel)
+      setAiVersion(data.version ?? nextModel)
+      setInfo(`AI 모델이 ${nextModel}(으)로 변경되었습니다.`)
+      notifications.show({ color: 'teal', message: `AI 모델이 ${nextModel}(으)로 변경되었습니다.` })
+    }, (error) => setRequestError(error, 'AI 모델 변경에 실패했습니다.', null))
   }
 
   return {
@@ -154,33 +138,27 @@ export function useCreateWorkspace() {
   }
 }
 
+/** Active preset ids, primary preset first, then most recently updated. */
 function getGenerationPresetIds(presets: PromptPreset[]) {
-  return orderActiveItems(presets, (item) => item.primary ?? item.isPrimary).map((item) => item.id)
-}
-
-function orderActiveItems<T extends { id: string; updatedAt: string; active?: boolean; isActive?: boolean }>(
-  items: T[],
-  isPrimary: (item: T) => boolean | undefined,
-) {
-  return items
-    .filter((item) => item.active ?? item.isActive)
-    .slice()
+  return presets
+    .filter((preset) => preset.isActive)
     .sort((left, right) => {
-      const primaryDiff = Number(Boolean(isPrimary(right))) - Number(Boolean(isPrimary(left)))
+      const primaryDiff = Number(right.isPrimary) - Number(left.isPrimary)
       if (primaryDiff !== 0) {
         return primaryDiff
       }
       return Date.parse(right.updatedAt) - Date.parse(left.updatedAt)
     })
+    .map((preset) => preset.id)
 }
 
 function mapApiErrorMessage(error: ApiRequestError, fallbackMessage: string) {
   if (error.status === 400 && error.details.length > 0) {
-    return 'The server rejected the request. Fix the validation errors and try again.'
+    return '서버가 요청을 거부했습니다. 입력 값을 확인한 뒤 다시 시도하세요.'
   }
 
   if (error.retryable) {
-    return error.message || 'A temporary error occurred. Try again shortly.'
+    return error.message || '일시적인 오류가 발생했습니다. 잠시 후 다시 시도하세요.'
   }
 
   return error.message || fallbackMessage

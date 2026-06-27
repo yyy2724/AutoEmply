@@ -1,9 +1,9 @@
-import { ActionIcon, Alert, Autocomplete, Button, FileInput, Grid, Group, Image, ScrollArea, Stack, Table, Tabs, Text, TextInput, Title } from '@mantine/core'
+import { ActionIcon, Alert, Autocomplete, Button, FileInput, Grid, Group, Image, Stack, Tabs, Text, TextInput, Title } from '@mantine/core'
 import { IconDownload, IconPhoto, IconRefresh, IconTrash } from '@tabler/icons-react'
 import PageSection from '../components/PageSection'
+import TemplateList from '../components/TemplateList'
 import { useTemplateLibrary } from '../hooks/useTemplateLibrary'
 import { buildApiUrl } from '../lib/api'
-import type { ReportTemplate } from '../types'
 
 function LibraryPage() {
   const {
@@ -34,7 +34,6 @@ function LibraryPage() {
     loadTemplates,
     removeTemplate,
   } = useTemplateLibrary()
-
 
   return (
     <Grid gutter="lg">
@@ -157,59 +156,6 @@ function LibraryPage() {
         </PageSection>
       </Grid.Col>
     </Grid>
-  )
-}
-
-type TemplateListProps = {
-  templates: ReportTemplate[]
-  selectedTemplate: ReportTemplate | null
-  onSelect: (template: ReportTemplate | null) => void
-  onDownloadName: (name: string) => void
-}
-
-function TemplateList({ templates, selectedTemplate, onSelect, onDownloadName }: TemplateListProps) {
-  return (
-    <ScrollArea h={420}>
-      <Table highlightOnHover stickyHeader>
-        <Table.Thead>
-          <Table.Tr>
-            <Table.Th>이름</Table.Th>
-            <Table.Th>상태</Table.Th>
-          </Table.Tr>
-        </Table.Thead>
-        <Table.Tbody>
-          {templates.length === 0 ? (
-            <Table.Tr>
-              <Table.Td colSpan={2}>
-                <Text c="dimmed">템플릿이 없습니다.</Text>
-              </Table.Td>
-            </Table.Tr>
-          ) : (
-            templates.map((item) => (
-              <Table.Tr
-                key={item.id}
-                bg={selectedTemplate?.id === item.id ? '#f1f3f5' : undefined}
-                style={{ cursor: 'pointer' }}
-                onClick={() => {
-                  onSelect(item)
-                  onDownloadName(item.originalFormName)
-                }}
-              >
-                <Table.Td>
-                  <Stack gap={0}>
-                    <Text fw={600}>{item.name}</Text>
-                    <Text size="xs" c="dimmed">
-                      {item.category}
-                    </Text>
-                  </Stack>
-                </Table.Td>
-                <Table.Td>{item.hasPreview ? '미리보기 있음' : '파일만 있음'}</Table.Td>
-              </Table.Tr>
-            ))
-          )}
-        </Table.Tbody>
-      </Table>
-    </ScrollArea>
   )
 }
 

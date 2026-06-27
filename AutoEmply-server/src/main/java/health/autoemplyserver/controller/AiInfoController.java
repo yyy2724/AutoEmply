@@ -11,6 +11,10 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+/**
+ * Exposes and updates the AI model selection: reports the configured/last-used
+ * Claude model and lets clients switch the active model.
+ */
 @RestController
 @RequestMapping("/api")
 public class AiInfoController {

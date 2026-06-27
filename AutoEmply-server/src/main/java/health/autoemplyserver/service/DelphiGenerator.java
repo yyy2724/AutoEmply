@@ -21,17 +21,26 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 import org.springframework.stereotype.Component;
 
+/**
+ * Generates a Delphi QuickReport source pair (.dfm layout + .pas unit) from a
+ * {@link LayoutSpec} and packages both files into a zip archive.
+ */
 @Component
 public class DelphiGenerator {
 
+    // Output encoding: generated .dfm/.pas files target Korean Delphi, which reads MS949 (EUC-KR superset).
     private static final Charset DELPHI_CHARSET = Charset.forName("MS949");
-    private static final int QUICK_REP_WIDTH = 794;
-    private static final int MAX_BAND_WIDTH = 794;
-    private static final int MAX_BAND_HEIGHT = 6000;
-    private static final int BAND_PADDING = 2;
-    private static final int MIN_FONT_SIZE = 6;
-    private static final int MAX_FONT_SIZE = 24;
-    private static final int MAX_PEN_THICKNESS = 6;
+
+    // Page/band geometry (pixels at 96 DPI).
+    private static final int QUICK_REP_WIDTH = 794;  // A4 portrait width (210mm) at 96 DPI; width of the TQuickRep page component
+    private static final int MAX_BAND_WIDTH = 794;   // report band max width in px; must match the QuickRep page width above
+    private static final int MAX_BAND_HEIGHT = 6000; // px; hard cap on detail band height to keep generated reports sane
+    private static final int BAND_PADDING = 2;       // px; slack added below/right of the outermost item when sizing the band
+
+    // Style clamps applied to incoming layout items.
+    private static final int MIN_FONT_SIZE = 6;      // pt; smallest font size emitted
+    private static final int MAX_FONT_SIZE = 24;     // pt; largest font size emitted
+    private static final int MAX_PEN_THICKNESS = 6;  // px; largest line/shape pen width emitted
 
     private final DelphiValueFormatter formatter;
     private final DelphiComponentWriter componentWriter;
@@ -234,15 +243,47 @@ public class DelphiGenerator {
             return items;
         }
 
-        Set<String> seen = new HashSet<>();
+        Set<ItemSignature> seen = new HashSet<>();
         List<LayoutItem> result = new ArrayList<>();
         for (LayoutItem item : items) {
-            String key = String.join("|",
+            if (seen.add(ItemSignature.of(item))) {
+                result.add(item);
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Value object identifying a layout item for deduplication: two items with the same
+     * signature render identically, so only the first is kept. Nullable fields are
+     * normalized to "" so that null and empty values compare as equal.
+     */
+    private record ItemSignature(
+        String type,
+        int left,
+        int top,
+        int width,
+        int height,
+        String orientation,
+        String caption,
+        String align,
+        String fontSize,
+        String bold,
+        String transparent,
+        String textColor,
+        String thickness,
+        String strokeColor,
+        String fillColor,
+        String filled,
+        String stretch
+    ) {
+        static ItemSignature of(LayoutItem item) {
+            return new ItemSignature(
                 Objects.toString(item.getType(), ""),
-                String.valueOf(item.getLeft()),
-                String.valueOf(item.getTop()),
-                String.valueOf(item.getWidth()),
-                String.valueOf(item.getHeight()),
+                item.getLeft(),
+                item.getTop(),
+                item.getWidth(),
+                item.getHeight(),
                 Objects.toString(item.getOrientation(), ""),
                 Objects.toString(item.getCaption(), ""),
                 Objects.toString(item.getAlign(), ""),
@@ -256,11 +297,7 @@ public class DelphiGenerator {
                 Objects.toString(item.getFilled(), ""),
                 Objects.toString(item.getStretch(), "")
             );
-            if (seen.add(key)) {
-                result.add(item);
-            }
         }
-        return result;
     }
 
     private List<LayoutItem> clampItemsToWidth(List<LayoutItem> items, int maxWidth) {

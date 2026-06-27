@@ -16,6 +16,9 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
+/**
+ * CRUD and download endpoints for stored report templates (generated Delphi source pairs).
+ */
 @RestController
 @RequestMapping("/api/report-templates")
 public class ReportTemplateController {

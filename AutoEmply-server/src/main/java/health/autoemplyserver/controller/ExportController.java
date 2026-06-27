@@ -11,6 +11,10 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+/**
+ * Exports a client-supplied layout spec as a zip containing generated
+ * Delphi QuickReport sources (.dfm/.pas).
+ */
 @RestController
 @RequestMapping("/api/export")
 public class ExportController {

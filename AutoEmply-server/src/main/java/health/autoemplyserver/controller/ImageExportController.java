@@ -12,6 +12,11 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
+/**
+ * Image-to-report endpoints: uploads a form image, extracts a layout (directly or via
+ * an intermediate form structure, the "v2" flow) using Claude, and optionally exports
+ * the result as a Delphi source zip.
+ */
 @RestController
 @RequestMapping("/api")
 public class ImageExportController {

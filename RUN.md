@@ -1,17 +1,19 @@
-# Run Guide
+# 빠른 실행 가이드
 
-## 1. Start PostgreSQL
+상세한 설명(환경 변수 전체 목록, API, 배포)은 [README.md](README.md)를 참고하세요.
 
-Create a database named `autoemply`.
+## 1. PostgreSQL 시작
 
-## 2. Run the server
+`autoemply` 데이터베이스를 생성합니다.
+
+## 2. 서버 실행
 
 ```bash
 cd AutoEmply-server
 ./gradlew bootRun
 ```
 
-Example environment:
+환경 변수 예시:
 
 ```bash
 DB_URL=jdbc:postgresql://localhost:5432/autoemply
@@ -20,7 +22,7 @@ DB_PASSWORD=postgres
 ANTHROPIC_API_KEY=your-key
 ```
 
-## 3. Run the client
+## 3. 클라이언트 실행
 
 ```bash
 cd AutoEmply-client
@@ -28,20 +30,17 @@ npm install
 npm run dev
 ```
 
-Client default URL: `http://localhost:5173`
+접속 주소: `http://localhost:5173`
 
-## 4. Test
-
-Server:
+## 4. 테스트
 
 ```bash
+# 서버
 cd AutoEmply-server
 ./gradlew test
-```
 
-Client:
-
-```bash
+# 클라이언트
 cd AutoEmply-client
+npm run typecheck
 npm run build
 ```

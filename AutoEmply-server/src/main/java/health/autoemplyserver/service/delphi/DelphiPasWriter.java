@@ -10,6 +10,10 @@ import java.util.Map;
 import java.util.Objects;
 import org.springframework.stereotype.Component;
 
+/**
+ * Writes the Delphi .pas unit source for a generated report form: type declaration,
+ * component fields, event handler stubs and any AI-provided method bodies.
+ */
 @Component
 public class DelphiPasWriter {
 

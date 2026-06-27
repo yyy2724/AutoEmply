@@ -33,23 +33,6 @@ export type PromptPresetForm = {
   isPrimary: boolean
 }
 
-export type SampleTemplateSet = {
-  id: string
-  name: string
-  templateIds: string[]
-  isActive: boolean
-  isPrimary: boolean
-  createdAt: string
-  updatedAt: string
-}
-
-export type SampleTemplateSetForm = {
-  name: string
-  templateIds: string[]
-  isActive: boolean
-  isPrimary: boolean
-}
-
 export type LayoutItem = {
   name?: string
   type: string

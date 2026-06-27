@@ -2,25 +2,11 @@ import { AppShell, Box, Button, Drawer, Group, Stack, Text } from '@mantine/core
 import { IconCommand, IconLayoutDashboard, IconLibrary, IconSparkles } from '@tabler/icons-react'
 import { useEffect, useState } from 'react'
 import { NavLink, Route, Routes, useLocation } from 'react-router-dom'
+import { colors, monoFontFamily, mutedButtonStyles } from './lib/theme'
 import CreatePage from './pages/CreatePage'
 import HomePage from './pages/HomePage'
 import LibraryPage from './pages/LibraryPage'
 import PresetsPage from './pages/PresetsPage'
-
-const shellBackground = `
-  linear-gradient(180deg, #0b0e12, #0b0e12)
-`
-
-const mutedButtonStyles = {
-  root: {
-    border: '1px solid #2f353e',
-    background: '#151a21',
-    color: '#d6dbe3',
-  },
-  label: {
-    color: '#d6dbe3',
-  },
-}
 
 const navItems = [
   { label: '대시보드', path: '/', icon: IconLayoutDashboard },
@@ -53,26 +39,26 @@ function App() {
       padding="lg"
       styles={{
         main: {
-          background: shellBackground,
+          background: colors.appBackground,
           minHeight: '100vh',
         },
         header: {
-          background: '#0f1318',
-          borderBottom: '1px solid #232830',
+          background: colors.surface,
+          borderBottom: `1px solid ${colors.surfaceBorder}`,
         },
         navbar: {
-          background: '#0f1318',
-          borderRight: '1px solid #232830',
+          background: colors.surface,
+          borderRight: `1px solid ${colors.surfaceBorder}`,
         },
       }}
     >
       <AppShell.Header>
         <Group justify="space-between" px="lg" h="100%">
           <Box>
-            <Text fw={800} ff="JetBrains Mono, D2Coding, Consolas, monospace">
+            <Text fw={800} ff={monoFontFamily}>
               AutoEmply
             </Text>
-            <Text size="xs" c="#7f8794" ff="JetBrains Mono, D2Coding, Consolas, monospace">
+            <Text size="xs" c={colors.textMuted} ff={monoFontFamily}>
               QuickReport 작업 화면
             </Text>
           </Box>
@@ -96,16 +82,16 @@ function App() {
               to={item.path}
               justify="flex-start"
               variant={location.pathname === item.path ? 'filled' : 'subtle'}
-              color={location.pathname === item.path ? 'gray' : 'gray'}
+              color="gray"
               leftSection={<item.icon size={17} />}
               styles={{
                 root: {
-                  border: '1px solid #2b313a',
+                  border: `1px solid ${colors.controlBorder}`,
                   background:
-                    location.pathname === item.path ? '#1a2028' : 'transparent',
+                    location.pathname === item.path ? colors.navActiveBackground : 'transparent',
                 },
                 inner: { justifyContent: 'flex-start' },
-                label: { fontFamily: 'JetBrains Mono, D2Coding, Consolas, monospace', color: '#d6dbe3' },
+                label: { fontFamily: monoFontFamily, color: colors.textPrimary },
               }}
             >
               {item.label}
@@ -113,7 +99,7 @@ function App() {
           ))}
         </Stack>
         <Stack gap={4} mt="lg">
-          <Text size="xs" fw={700} c="#6f7785" ff="JetBrains Mono, D2Coding, Consolas, monospace">
+          <Text size="xs" fw={700} c={colors.textFaint} ff={monoFontFamily}>
             SYS
           </Text>
         </Stack>
@@ -134,22 +120,22 @@ function App() {
         position="right"
         size="xl"
         title={
-          <Text ff="JetBrains Mono, D2Coding, Consolas, monospace" fw={700}>
+          <Text ff={monoFontFamily} fw={700}>
             프리셋 관리
           </Text>
         }
         overlayProps={{ backgroundOpacity: 0.45, blur: 2 }}
         styles={{
           content: {
-            background: '#0f1318',
-            borderLeft: '1px solid #2b313a',
+            background: colors.surface,
+            borderLeft: `1px solid ${colors.controlBorder}`,
           },
           header: {
-            background: '#0f1318',
-            borderBottom: '1px solid #232830',
+            background: colors.surface,
+            borderBottom: `1px solid ${colors.surfaceBorder}`,
           },
           body: {
-            background: '#0f1318',
+            background: colors.surface,
           },
         }}
       >

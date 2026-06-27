@@ -10,6 +10,11 @@ import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+/**
+ * Orchestrates the image-to-report flow: prepares the uploaded image, resolves the
+ * prompt preset, asks Claude for a layout (directly or via a form structure), and
+ * hands the result to the Delphi generator for zip export.
+ */
 @Service
 public class ImageGenerationService {
 

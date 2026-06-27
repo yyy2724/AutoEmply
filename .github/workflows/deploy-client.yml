@@ -17,10 +17,13 @@ jobs:
         with:
           node-version: '20'
 
+      # Lint and typecheck gate the build: a failing check stops the deploy.
       - name: Install & Build
         run: |
           cd AutoEmply-client
           npm ci
+          npm run lint
+          npm run typecheck
           npm run build
 
       - name: Configure AWS credentials

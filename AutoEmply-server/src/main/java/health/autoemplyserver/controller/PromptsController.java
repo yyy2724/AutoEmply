@@ -16,6 +16,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+/**
+ * CRUD endpoints for prompt presets used to steer Claude layout/structure extraction.
+ */
 @RestController
 @RequestMapping("/api/prompts")
 public class PromptsController {

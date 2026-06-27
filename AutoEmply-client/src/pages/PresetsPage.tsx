@@ -15,39 +15,10 @@ import {
 } from '@mantine/core'
 import PageSection from '../components/PageSection'
 import { usePromptPresets } from '../hooks/usePromptPresets'
+import { alertStyles, colors, monoFontFamily, monoLabelStyles, mutedButtonStyles } from '../lib/theme'
 import type { PromptPreset } from '../types'
 
-const mutedButtonStyles = {
-  root: {
-    border: '1px solid #2f353e',
-    background: '#151a21',
-    color: '#d6dbe3',
-  },
-}
-
-const monoLabelStyles = {
-  label: {
-    fontFamily: 'JetBrains Mono, D2Coding, Consolas, monospace',
-    fontSize: '0.74rem',
-    letterSpacing: '0.08em',
-    textTransform: 'uppercase' as const,
-    color: '#87909d',
-  },
-  input: {
-    background: '#0f1318',
-    borderColor: '#2b313a',
-    color: '#d6dbe3',
-    fontFamily: 'JetBrains Mono, D2Coding, Consolas, monospace',
-  },
-}
-
-const alertStyles = {
-  root: {
-    background: '#141920',
-    borderColor: '#2b313a',
-    color: '#d6dbe3',
-  },
-}
+const checkboxLabelStyles = { label: { color: colors.textPrimary } }
 
 function PresetsPage() {
   const {
@@ -68,40 +39,48 @@ function PresetsPage() {
   return (
     <Grid gutter="lg">
       <Grid.Col span={{ base: 12, lg: 5 }}>
-        <PageSection title="Preset list" description={`Total ${presets.length} / Active ${activeCount}`}>
+        <PageSection title="프리셋 목록" description={`전체 ${presets.length}개 / 활성 ${activeCount}개`}>
           <Stack>
             <Group justify="space-between">
-              <Text size="sm" c="dimmed" ff="JetBrains Mono, D2Coding, Consolas, monospace">
-                Language preset selection
+              <Text size="sm" c="dimmed" ff={monoFontFamily}>
+                언어 프리셋 선택
               </Text>
               <Button variant="default" styles={mutedButtonStyles} onClick={() => void loadPresets()} loading={busy}>
-                Reload
+                새로고침
               </Button>
             </Group>
             <ScrollArea h={520}>
               <Table stickyHeader highlightOnHover>
                 <Table.Thead>
                   <Table.Tr>
-                    <Table.Th>Name</Table.Th>
-                    <Table.Th>Status</Table.Th>
-                    <Table.Th>Updated</Table.Th>
+                    <Table.Th>이름</Table.Th>
+                    <Table.Th>상태</Table.Th>
+                    <Table.Th>수정일</Table.Th>
                   </Table.Tr>
                 </Table.Thead>
                 <Table.Tbody>
-                  {presets.map((preset: PromptPreset) => (
-                    <Table.Tr
-                      key={preset.id}
-                      onClick={() => selectPreset(preset)}
-                      style={{
-                        cursor: 'pointer',
-                        background: editingId === preset.id ? '#171d24' : undefined,
-                      }}
-                    >
-                      <Table.Td>{preset.name}</Table.Td>
-                      <Table.Td>{preset.isActive ? 'Active' : 'Inactive'}</Table.Td>
-                      <Table.Td>{new Date(preset.updatedAt).toLocaleString()}</Table.Td>
+                  {presets.length === 0 ? (
+                    <Table.Tr>
+                      <Table.Td colSpan={3}>
+                        <Text c="dimmed">등록된 프리셋이 없습니다.</Text>
+                      </Table.Td>
                     </Table.Tr>
-                  ))}
+                  ) : (
+                    presets.map((preset: PromptPreset) => (
+                      <Table.Tr
+                        key={preset.id}
+                        onClick={() => selectPreset(preset)}
+                        style={{
+                          cursor: 'pointer',
+                          background: editingId === preset.id ? colors.rowSelectedBackground : undefined,
+                        }}
+                      >
+                        <Table.Td>{preset.name}</Table.Td>
+                        <Table.Td>{preset.isActive ? '활성' : '비활성'}</Table.Td>
+                        <Table.Td>{new Date(preset.updatedAt).toLocaleString()}</Table.Td>
+                      </Table.Tr>
+                    ))
+                  )}
                 </Table.Tbody>
               </Table>
             </ScrollArea>
@@ -110,26 +89,26 @@ function PresetsPage() {
       </Grid.Col>
 
       <Grid.Col span={{ base: 12, lg: 7 }}>
-        <PageSection title={editingId ? 'Edit language preset' : 'Create language preset'}>
+        <PageSection title={editingId ? '언어 프리셋 수정' : '언어 프리셋 생성'}>
           <Stack>
             <Group justify="space-between">
               <Badge color="gray" variant="light" radius="sm">
-                {editingId ? 'Edit mode' : 'Create mode'}
+                {editingId ? '수정 모드' : '생성 모드'}
               </Badge>
-              <Text size="sm" c="#7f8794" ff="JetBrains Mono, D2Coding, Consolas, monospace">
-                {editingId ? editingId.slice(0, 8) : 'new'}
+              <Text size="sm" c={colors.textMuted} ff={monoFontFamily}>
+                {editingId ? editingId.slice(0, 8) : '신규'}
               </Text>
             </Group>
             <Group grow>
               <TextInput
-                label="Preset name"
+                label="프리셋 이름"
                 styles={monoLabelStyles}
                 value={form.name}
                 onChange={(event) => setForm((current) => ({ ...current, name: event.currentTarget.value }))}
               />
             </Group>
             <Textarea
-              label="System prompt"
+              label="시스템 프롬프트"
               styles={monoLabelStyles}
               minRows={8}
               autosize
@@ -137,7 +116,7 @@ function PresetsPage() {
               onChange={(event) => setForm((current) => ({ ...current, systemPrompt: event.currentTarget.value }))}
             />
             <Textarea
-              label="User prompt template"
+              label="사용자 프롬프트 템플릿"
               styles={monoLabelStyles}
               minRows={4}
               autosize
@@ -145,7 +124,7 @@ function PresetsPage() {
               onChange={(event) => setForm((current) => ({ ...current, userPromptTemplate: event.currentTarget.value }))}
             />
             <Textarea
-              label="Style rules JSON"
+              label="스타일 규칙 JSON"
               styles={monoLabelStyles}
               minRows={4}
               autosize
@@ -154,43 +133,43 @@ function PresetsPage() {
             />
             <Group grow align="end">
               <NumberInput
-                label="Temperature"
+                label="온도 (Temperature)"
                 styles={monoLabelStyles}
                 value={form.temperature}
                 onChange={(value) => setForm((current) => ({ ...current, temperature: Number(value ?? 0) }))}
               />
               <NumberInput
-                label="Max tokens"
+                label="최대 토큰"
                 styles={monoLabelStyles}
                 value={form.maxTokens}
                 onChange={(value) => setForm((current) => ({ ...current, maxTokens: Number(value ?? 32000) }))}
               />
             </Group>
             <Checkbox
-              label="Use this language preset in generation"
-              styles={{ label: { color: '#d6dbe3' } }}
+              label="생성 시 이 언어 프리셋을 사용"
+              styles={checkboxLabelStyles}
               checked={form.isActive}
               onChange={(event) => setForm((current) => ({ ...current, isActive: event.currentTarget.checked }))}
             />
             <Checkbox
-              label="Use this as representative language preset"
-              styles={{ label: { color: '#d6dbe3' } }}
+              label="대표 언어 프리셋으로 사용"
+              styles={checkboxLabelStyles}
               checked={form.isPrimary}
               onChange={(event) => setForm((current) => ({ ...current, isPrimary: event.currentTarget.checked }))}
             />
             <Group>
               <Button onClick={() => void savePreset()} loading={busy} color="gray">
-                Save
+                저장
               </Button>
               <Button variant="default" styles={mutedButtonStyles} onClick={resetEditor}>
-                Reset
+                초기화
               </Button>
               <Button variant="subtle" color="red" onClick={() => void removePreset()} disabled={!editingId} loading={busy}>
-                Delete
+                삭제
               </Button>
             </Group>
             <Alert color="gray" styles={alertStyles}>
-              Language presets define prompt rules used during AI generation. Active presets are included in create requests, and the representative preset is sent first.
+              언어 프리셋은 AI 생성에 사용되는 프롬프트 규칙을 정의합니다. 활성 프리셋은 생성 요청에 포함되며, 대표 프리셋이 가장 먼저 전송됩니다.
             </Alert>
             {message && <Alert color="gray" styles={alertStyles}>{message}</Alert>}
           </Stack>

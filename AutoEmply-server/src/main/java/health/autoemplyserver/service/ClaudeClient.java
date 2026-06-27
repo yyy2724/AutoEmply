@@ -25,10 +25,22 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+/**
+ * Calls the Anthropic Claude Messages API to extract a {@link LayoutSpec} or
+ * {@link FormStructure} from an uploaded form image, with retry/backoff handling
+ * and validation of the model's tool output.
+ */
 @Component
 public class ClaudeClient {
 
     private static final Logger log = LoggerFactory.getLogger(ClaudeClient.class);
+
+    /**
+     * Maximum escalation depth for the empty-result recursion in generateLayoutSpec():
+     * level 0 (initial call) may recurse to level 1 and level 2; at level 2 an empty
+     * result is no longer retried recursively and falls through to normal error handling.
+     */
+    private static final int MAX_EMPTY_RETRY_DEPTH = 2;
 
     private final ObjectMapper objectMapper;
     private final ClaudeToolSchemas claudeToolSchemas;
@@ -93,6 +105,16 @@ public class ClaudeClient {
         this.httpClient = httpClient;
     }
 
+    /**
+     * Extracts a {@link LayoutSpec} from a form image.
+     *
+     * <p>Empty-result escalation: if Claude returns {@code {}} or a spec whose items array
+     * is empty, this method recurses with stronger prompt constraints
+     * ({@code forceNonEmptyItems=true}) and an incremented {@code emptyRetryLevel}
+     * (levels 0 → 1 → 2). Each recursion restarts the full HTTP retry loop. Once
+     * {@code emptyRetryLevel} reaches {@link #MAX_EMPTY_RETRY_DEPTH}, an empty result is
+     * treated as an ordinary validation failure instead of triggering another recursion.</p>
+     */
     public LayoutSpec generateLayoutSpec(String formName, String mediaType, String base64Data, ResolvedPromptPreset preset) {
         return generateLayoutSpec(formName, mediaType, base64Data, preset, false, 0);
     }
@@ -108,7 +130,7 @@ public class ClaudeClient {
             "emit_layout_spec",
             appendLayoutGuidance(claudePayloadFactory.renderUserPrompt(preset.userPromptTemplate(), formName), forceNonEmptyItems, null),
             (rawText, attempt) -> {
-                if (isEmptyObjectPayload(rawText) && emptyRetryLevel < 2) {
+                if (isEmptyObjectPayload(rawText) && emptyRetryLevel < MAX_EMPTY_RETRY_DEPTH) {
                     return ParseOutcome.recursiveRetry();
                 }
 
@@ -124,7 +146,7 @@ public class ClaudeClient {
 
                 boolean itemsEmpty = errors.stream()
                     .anyMatch(error -> error.contains("layoutSpec.items must contain at least one item."));
-                if (!forceNonEmptyItems && itemsEmpty && emptyRetryLevel < 2) {
+                if (!forceNonEmptyItems && itemsEmpty && emptyRetryLevel < MAX_EMPTY_RETRY_DEPTH) {
                     return ParseOutcome.recursiveRetry();
                 }
 
@@ -177,6 +199,18 @@ public class ClaudeClient {
         throw toRuntimeException(outcome);
     }
 
+    /**
+     * Sends the request to Claude with up to {@code app.ai.max-retry-attempts} attempts and
+     * exponential backoff, classifying failures as transient or fatal:
+     * <ul>
+     *   <li>Transient (retried): HTTP 429/5xx/529 statuses (see {@link #isTransient(int)}),
+     *       network IO errors, missing tool output, and parse/validation failures (the last
+     *       two also feed corrective guidance into the next attempt's prompt).</li>
+     *   <li>Fatal (returned immediately): non-transient HTTP statuses (e.g. 4xx auth or
+     *       request errors), thread interruption, and a recursive-retry signal from the
+     *       parse callback, which the caller handles by escalating the prompt.</li>
+     * </ul>
+     */
     private <T> ParseOutcome<T> callClaudeWithRetries(
         String formName,
         String mediaType,
@@ -194,6 +228,8 @@ public class ClaudeClient {
         }
 
         int maxRetries = Math.max(1, aiProperties.getMaxRetryAttempts());
+        // Remembers the most recent failure across attempts; returned to the caller when
+        // retries are exhausted so the final error reflects the last observed problem.
         ParseOutcome<T> lastFailure = null;
         String retryGuidance = null;
 

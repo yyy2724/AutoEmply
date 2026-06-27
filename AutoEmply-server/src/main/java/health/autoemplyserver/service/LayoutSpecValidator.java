@@ -12,8 +12,17 @@ import org.springframework.stereotype.Component;
 @Component
 public class LayoutSpecValidator {
 
+    /**
+     * Web-style hex color, 6 digits ({@code #RRGGBB}, e.g. {@code #FF0000}) or 8 digits
+     * interpreted as ARGB ({@code #AARRGGBB}, e.g. {@code #CCFF0000}). The alpha pair is
+     * discarded when converting to Delphi colors — see {@code DelphiValueFormatter#toDelphiColor}.
+     */
     private static final Pattern HEX_COLOR_REGEX = Pattern.compile("^#(?:[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$");
+
+    /** Delphi hex color literal, exactly 8 hex digits after {@code $}. Examples: {@code $00FF0000}, {@code $00D8E4F0}. */
     private static final Pattern DELPHI_HEX_COLOR_REGEX = Pattern.compile("^\\$[0-9A-Fa-f]{8}$");
+
+    /** Delphi named color constant. Examples: {@code clBlack}, {@code clWhite}, {@code clBtnFace}. */
     private static final Pattern DELPHI_COLOR_NAME_REGEX = Pattern.compile("^cl[A-Za-z0-9_]+$");
 
     public List<String> validate(String formName, LayoutSpec layoutSpec) {

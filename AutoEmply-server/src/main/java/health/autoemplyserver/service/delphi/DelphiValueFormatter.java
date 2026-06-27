@@ -91,6 +91,8 @@ public class DelphiValueFormatter {
             return value;
         }
         if (value.startsWith("#")) {
+            // 8-digit hex is interpreted as #AARRGGBB (ARGB, matching the legacy C#
+            // implementation); the alpha pair is discarded because Delphi colors have no alpha.
             String hex = value.length() == 9 ? value.substring(3) : value.substring(1);
             if (hex.length() == 6) {
                 int r = Integer.parseInt(hex.substring(0, 2), 16);

@@ -9,6 +9,10 @@ import java.util.ArrayList;
 import java.util.List;
 import org.springframework.stereotype.Component;
 
+/**
+ * Validates an AI-extracted {@link FormStructure} (sections, tables, rows, cells) and
+ * normalizes obviously inconsistent values (e.g. column width fractions) in place.
+ */
 @Component
 public class FormStructureValidator {
 
